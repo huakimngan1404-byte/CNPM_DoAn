@@ -1,9 +1,165 @@
-from fastapi import APIRouter, Query
-from business.audio_service import AudioService
+import os
+import hashlib
+import asyncio
+import logging
+import sys
+import types
+from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
+from business.audio_service import TTSService, AudioTaskManager
+from business.site_translation_service import SiteTranslationError, SiteTranslationService
+from data.audio_repository import AudioRepository
 
-router = APIRouter(prefix="/api/audio")
-service = AudioService()
+try:
+    import main as main_module
+except ImportError:
+    main_module = None
+
+logger = logging.getLogger(__name__)
+
+if main_module is None:
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    try:
+        import main as main_module
+    except ImportError:
+        main_module = types.SimpleNamespace(
+            db=None,
+            AUDIO_PUBLIC_BASE_URL="http://localhost:8001",
+            TRANSLATION_MAX_RETRIES=3,
+            TRANSLATION_RETRY_DELAY=2,
+            TRANSLATION_TIMEOUT=30,
+        )
+
+# Keep a module-level reference for compatibility with tests and runtime code that patch
+# `presentation.audio_router.main.db` or call `main.db[...]` during route execution.
+main = main_module
+
+router = APIRouter(prefix="/audio", tags=["Audio System"])
+
+tts_service = TTSService(cache_dir="static/audio")
+task_manager = AudioTaskManager(tts_service)
+
+def _get_main_config():
+    global main_module
+    if main_module is None or not hasattr(main_module, "db") and not hasattr(main_module, "AUDIO_PUBLIC_BASE_URL"):
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        try:
+            import importlib
+            module_name = "main"
+            if module_name not in sys.modules:
+                importlib.import_module(module_name)
+            main_module = sys.modules[module_name]
+        except ImportError:
+            main_module = types.SimpleNamespace(
+                db=None,
+                AUDIO_PUBLIC_BASE_URL="http://localhost:8001",
+                TRANSLATION_MAX_RETRIES=3,
+                TRANSLATION_RETRY_DELAY=2,
+                TRANSLATION_TIMEOUT=30,
+            )
+    main = main_module
+    return main_module
+
+
+async def translate_with_timeout(text: str, lang: str):
+    """
+    Wrap translation with timeout handling.
+    TRANSLATION_TIMEOUT is the total timeout for the entire operation.
+    """
+    main = _get_main_config()
+    try:
+        return await asyncio.wait_for(
+            tts_service.translate_text_async(text, lang),
+            timeout=main.TRANSLATION_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"[Translation] Timeout after {main.TRANSLATION_TIMEOUT}s")
+        raise
+
+@router.post("/tts")
+async def post_tts(text: str, lang: str = "vi", response: Response = None):
+    """
+    POST /audio/tts (Tier 2 API)
+    - Text -> Edge-TTS -> stream MP3 trực tiếp
+    - Disk cache: X-Cache: HIT/MISS
+    - X-Static-Url: versioned URL cho SW cache
+    """
+    file_path, is_hit, _ = await tts_service.generate_audio(text, lang)
+    audio_filename = os.path.basename(file_path)
+    
+    response.headers["X-Cache"] = "HIT" if is_hit else "MISS"
+    response.headers["X-Static-Url"] = f"/static/audio/{audio_filename}"
+    
+    return FileResponse(file_path, media_type="audio/mpeg", filename=audio_filename)
+
+@router.get("/pack-manifest")
+async def get_pack_manifest(lang: str):
+    return tts_service.get_pack_manifest(lang)
+
 
 @router.get("/{site_code}")
-async def get_audio(site_code: str, lang: str = Query("vi")):
-    return await service.get_audio_for_site(site_code, lang)
+async def get_site_translation(site_code: str, lang: str = "vi"):
+    config = _get_main_config()
+    db = getattr(config, "db", None)
+
+    if db is None:
+        raise HTTPException(
+            status_code=500,
+            detail="MongoDB is not configured",
+        )
+    service = SiteTranslationService(
+        AudioRepository(db),
+        tts_service,
+        getattr(config, "AUDIO_PUBLIC_BASE_URL", "http://localhost:8001"),
+        translate_with_timeout,
+    )
+    try:
+        return await service.get_translation(site_code, lang)
+    except SiteTranslationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+@router.get("/admin/audio-tasks/stream")
+async def audio_tasks_stream(request: Request):
+    """
+    SSE real-time: GET /admin/audio-tasks/stream
+    Cập nhật trạng thái tác vụ liên tục cho Frontend
+    """
+    q = asyncio.Queue()
+    task_manager.subscribers.append(q)
+    
+    async def event_generator():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                data = await q.get()
+                yield f"data: {data}\n\n"
+        finally:
+            if q in task_manager.subscribers:
+                task_manager.subscribers.remove(q)
+                
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@router.post("/admin/tasks/submit")
+async def submit_audio_task(text: str, lang: str = "vi"):
+    """Đưa task mới vào hàng đợi chạy nền"""
+    task_id = task_manager.submit_task(text, lang)
+    return {"task_id": task_id, "status": "queued"}
+
+@router.post("/admin/tasks/{task_id}/control")
+async def control_audio_task(task_id: str, action: str):
+    """
+    Điều khiển Frontend: Pause / Resume / Cancel
+    Hỗ trợ chuyển đổi trạng thái: queued -> running -> paused -> completed/failed/cancelled
+    """
+    try:
+        status = await task_manager.control_task(task_id, action)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"task_id": task_id, "status": status}

@@ -1,6 +1,10 @@
 fastapi
 uvicorn
+deep-translator
+edge-tts
+aiohttp
+pydantic
 motor
-google-generativeai
-gTTS
-aiofiles
+pytest
+pytest-asyncio
+httpx
