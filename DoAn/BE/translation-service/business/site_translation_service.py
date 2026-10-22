@@ -1,5 +1,4 @@
 import logging
-import os
 import asyncio
 from datetime import datetime, timezone
 from typing import Callable
@@ -49,13 +48,13 @@ class SiteTranslationService:
             translated_text = cached.get("description")
             if isinstance(translated_text, str) and translated_text.strip():
                 translated_text = translated_text.strip()
-                audio_path, audio_hit, _ = await self._generate_audio(
+                audio_asset_id, audio_hit = await self._get_or_create_audio_asset(
                     site_code, lang, translated_text
                 )
-                audio_url = self._audio_url(audio_path)
-                if "_id" in cached:
+                audio_url = self._audio_url(audio_asset_id)
+                if cached.get("audio_asset_id") != audio_asset_id or cached.get("audio_url") != audio_url:
                     await self.repository.update_translation_audio(
-                        cached["_id"], audio_url
+                        cached["_id"], audio_asset_id, audio_url
                     )
                 return self._result(
                     site_code, lang, translated_text, audio_url, "HIT", audio_hit
@@ -80,15 +79,25 @@ class SiteTranslationService:
                     502, "Translation failed. Please try again later."
                 ) from exc
 
-        audio_path, audio_hit, _ = await self._generate_audio(
-            site_code, lang, translated_text
-        )
-        audio_url = self._audio_url(audio_path)
         await self.repository.save_translation(
             site_code,
             lang,
             source_text,
             translated_text,
+            None,
+            None,
+            datetime.now(timezone.utc),
+        )
+        audio_asset_id, audio_hit = await self._get_or_create_audio_asset(
+            site_code, lang, translated_text
+        )
+        audio_url = self._audio_url(audio_asset_id)
+        await self.repository.save_translation(
+            site_code,
+            lang,
+            source_text,
+            translated_text,
+            audio_asset_id,
             audio_url,
             datetime.now(timezone.utc),
         )
@@ -107,11 +116,28 @@ class SiteTranslationService:
                 502, "Audio generation failed. Please try again later."
             ) from exc
 
-    def _audio_url(self, audio_path: str) -> str:
-        return (
-            f"{self.public_base_url}/static/audio/"
-            f"{os.path.basename(audio_path)}"
-        )
+    async def _get_or_create_audio_asset(self, site_code: str, lang: str, text: str):
+        asset_id = self.tts_service.get_audio_cache_key(text, lang)
+        if await self.repository.get_audio_asset(asset_id):
+            return asset_id, True
+
+        audio_path, disk_cache_hit, _ = await self._generate_audio(site_code, lang, text)
+        try:
+            with open(audio_path, "rb") as audio_file:
+                audio_data = audio_file.read()
+        except OSError as exc:
+            logger.exception("[Audio] Could not read generated audio for site=%s, lang=%s", site_code, lang)
+            raise SiteTranslationError(
+                502, "Generated audio could not be saved."
+            ) from exc
+
+        if not audio_data:
+            raise SiteTranslationError(502, "Generated audio file is empty.")
+        await self.repository.save_audio_asset(asset_id, audio_data, site_code, lang)
+        return asset_id, disk_cache_hit
+
+    def _audio_url(self, audio_asset_id: str) -> str:
+        return f"{self.public_base_url}/api/audio/files/{audio_asset_id}"
 
     @staticmethod
     def _result(site_code, lang, description, audio_url, translation_cache, audio_hit):

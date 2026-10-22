@@ -1,24 +1,44 @@
-import MapView, { Marker } from 'react-native-maps';
 import { Linking } from 'react-native';
 import * as Location from 'expo-location';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, ImageBackground, Modal, Platform, Pressable,
-  ScrollView, StyleSheet, Switch, Text, TextInput, View
+  ScrollView, StyleSheet, Switch, Text as NativeText, TextInput as NativeTextInput, View
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import {
   ArrowLeft, ArrowRight, Bookmark, Check, ChevronDown, ChevronRight,
   CircleHelp, Clock3, Compass, Headphones, Heart, Info, Languages, LocateFixed,
-  Map, MapPin, MoreHorizontal, Navigation, Pause, Play, QrCode, RotateCcw,
+  Map, MapPin, MoreHorizontal, Navigation, Pause, Play, RotateCcw,
   RotateCw, Search, Settings, Share2, SlidersHorizontal, Sparkles, X,
 } from 'lucide-react-native';
 import { languages, sites } from './src/data/heritage.js';
-import { adaptSiteRecords, apiBaseUrl, fetchNearbySites, fetchSites } from './src/services/api.js';
+import { apiBaseUrl, fetchNearbySites, fetchSiteAudio, fetchSites } from './src/services/api.js';
+import MapCanvas from './src/components/MapCanvas';
+import { translateUiText } from './src/i18n.js';
+
+const UiLanguageContext = createContext('vi');
+
+function Text({ children, ...props }) {
+  const language = useContext(UiLanguageContext);
+  const localizedChildren = Array.isArray(children)
+    ? children.map((child) => typeof child === 'string' ? translateUiText(child, language) : child)
+    : typeof children === 'string' ? translateUiText(children, language) : children;
+  return <NativeText {...props}>{localizedChildren}</NativeText>;
+}
+
+function LocalizedTextInput({ placeholder, ...props }) {
+  const language = useContext(UiLanguageContext);
+  return (
+    <NativeTextInput
+      {...props}
+      placeholder={placeholder ? translateUiText(placeholder, language) : placeholder}
+    />
+  );
+}
 
 const accent = '#F04D2E';
 const ink = '#22201F';
@@ -32,44 +52,22 @@ const tabs = [
 ];
 
 export default function App() {
-  const handleFindNearby = async () => {
-    try {
-        // 1. Xin quyền người dùng cho phép App truy cập vị trí
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-            alert('App cần quyền truy cập vị trí để tìm di tích quanh bạn nhé!');
-            return;
-        }
-
-        // 2. Bắt đầu lấy tọa độ GPS hiện tại
-        console.log("Đang dò tìm vệ tinh GPS...");
-        let location = await Location.getCurrentPositionAsync({});
-        const lat = location.coords.latitude;
-        const lng = location.coords.longitude;
-        console.log(`Đã thấy bạn! Vĩ độ: ${lat}, Kinh độ: ${lng}`);
-
-        // 3. Gửi tọa độ xuống Backend của bạn để tìm di tích gần nhất
-        // (Sử dụng hàm fetchNearbySites đã tạo sẵn ở file api.js)
-        const nearbyData = await fetchNearbySites(lat, lng, language);
-        
-        if (nearbyData) {
-            alert('Đã gửi vị trí thành công lên Backend!');
-            // Tại đây bạn có thể dùng lệnh setSiteList(nearbyData) 
-            // hoặc điều hướng sang màn hình bản đồ tùy logic của app.
-        }
-
-    } catch (error) {
-        console.error("Lỗi định vị:", error);
-        alert('Không thể lấy được vị trí, vui lòng thử lại.');
-    }
-};
   const [activeTab, setActiveTab] = useState('home');
   const [screen, setScreen] = useState('main');
   const [selectedSite, setSelectedSite] = useState(sites[0]);
   const [siteList, setSiteList] = useState(sites);
-  const [language, setLanguage] = useState(languages[0]);
+  const [appLanguage, setAppLanguage] = useState(languages[0]);
+  const [audioLanguage, setAudioLanguage] = useState(languages[0]);
   const [languagePicker, setLanguagePicker] = useState(false);
+  const [languagePickerMode, setLanguagePickerMode] = useState('app');
   const [savedIds, setSavedIds] = useState([]);
+  const geofenceInsideRef = useRef(new Set());
+  const siteListRef = useRef(siteList);
+  const selectedSiteRef = useRef(selectedSite);
+  siteListRef.current = siteList;
+  selectedSiteRef.current = selectedSite;
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioError, setAudioError] = useState('');
   const audioPlayer = useAudioPlayer(null);
   const audioStatus = useAudioPlayerStatus(audioPlayer);
   const playing = audioStatus.playing;
@@ -78,9 +76,16 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState('');
   const [autoPlay, setAutoPlay] = useState(true);
+  const [pendingAutoPlaySiteId, setPendingAutoPlaySiteId] = useState(null);
+  const [mapAudioSiteId, setMapAudioSiteId] = useState(null);
+  const [readyAudioSiteId, setReadyAudioSiteId] = useState(null);
+  const audioLoadAwaitingSiteRef = useRef(null);
   const [apiLoading, setApiLoading] = useState(true);
   const [apiError, setApiError] = useState('');
-  const [permission, requestPermission] = useCameraPermissions();
+  const openLanguagePicker = (mode = 'app') => {
+    setLanguagePickerMode(mode);
+    setLanguagePicker(true);
+  };
   const filteredSites = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('vi');
     return siteList.filter((site) => {
@@ -90,66 +95,164 @@ export default function App() {
     });
   }, [category, search, siteList]);
 
-// BỘ THEO DÕI GPS LIÊN TỤC (Tự động bật phát nhạc bán kính 20m)
+// Theo dõi GPS thật và tự phát audio khi vừa vào vùng 50 m của một di tích.
 useEffect(() => {
   let locationSubscription = null;
+  let isActive = true;
 
   const startTracking = async () => {
     if (!autoPlay) return;
 
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return;
+    if (!isActive || status !== 'granted') return;
 
-    // Quét liên tục mỗi 3 mét di chuyển
     locationSubscription = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 3 }, 
-      async (location) => {
-        const userLat = location.coords.latitude;
-        const userLng = location.coords.longitude;
-        
-        const records = await fetchNearbySites(userLat, userLng, language.id);
-        
-        if (records && records.length > 0) {
-          const nearbySites = adaptSiteRecords(records);
-          const nearestSite = nearbySites[0];
-          
-          // 1. Tính toán khoảng cách ra mét
-          const distanceInMeters = calculateDistance(userLat, userLng, nearestSite.latitude, nearestSite.longitude);
-          console.log(`[GPS] Cách ${nearestSite.name}: ${Math.round(distanceInMeters)} mét`);
+      { accuracy: Location.Accuracy.High, distanceInterval: 10 },
+      (location) => {
+        const { latitude, longitude } = location.coords;
+        if (!isActive) return;
+        void fetchNearbySites(latitude, longitude, audioLanguage.id).catch((error) => {
+          console.error('Không thể đồng bộ vị trí GPS với backend:', error);
+        });
 
-          // 2. Kích hoạt TỰ ĐỘNG BẬT nếu vào vùng 20 mét
-          if (distanceInMeters <= 20) {
-            if (nearestSite.id !== selectedSite?.id) {
-              setSelectedSite(nearestSite);
-              setScreen('detail'); // Mở màn hình chi tiết
-              
-              // 3. Ép Audio Player tự động phát sau 1 giây (chờ tải file mp3)
-              setTimeout(() => {
-                audioPlayer.play();
-                showToast(`Đã tự động phát audio cho ${nearestSite.name}`);
-              }, 1000);
-            }
+        const currentInside = geofenceInsideRef.current;
+        const nextInside = new Set();
+        const newlyEntered = [];
+        siteListRef.current.forEach((site) => {
+          if (site.latitude == null || site.longitude == null) return;
+          const distance = calculateDistance(
+            latitude,
+            longitude,
+            Number(site.latitude),
+            Number(site.longitude)
+          );
+          const radius = Number(site.radius ?? 50);
+          const wasInside = currentInside.has(site.id);
+          if (distance <= radius || (wasInside && distance <= radius + 15)) {
+            nextInside.add(site.id);
           }
-        }
+          if (!wasInside && distance <= radius) {
+            newlyEntered.push({ site, distance });
+          }
+        });
+        geofenceInsideRef.current = nextInside;
+
+        const enteredSite = newlyEntered
+          .sort((left, right) => left.distance - right.distance)[0]?.site;
+        if (!enteredSite) return;
+
+        audioPlayer.pause();
+        audioPlayer.replace(null);
+        setPendingAutoPlaySiteId(enteredSite.id);
+        setSelectedSite(enteredSite);
+        setScreen('detail');
       }
     );
   };
 
-  startTracking();
+  void startTracking().catch((error) => {
+    console.error('Không thể khởi động theo dõi GPS:', error);
+  });
 
   return () => {
+    isActive = false;
     if (locationSubscription) locationSubscription.remove();
   };
-}, [autoPlay, language.id, selectedSite?.id, audioPlayer]);
+}, [autoPlay, audioLanguage.id, audioPlayer]);
 
   useEffect(() => {
-    if (selectedSite?.audioUrl) audioPlayer.replace(selectedSite.audioUrl);
-    else audioPlayer.pause();
-  }, [audioPlayer, selectedSite?.audioUrl]);
+    let isActive = true;
+
+    const shouldLoadForDetail = screen === 'detail';
+    const shouldLoadForMapPlayback = activeTab === 'map'
+      && (pendingAutoPlaySiteId === selectedSite?.id
+        || mapAudioSiteId === selectedSite?.id);
+    if (!shouldLoadForDetail && !shouldLoadForMapPlayback) {
+      return () => { isActive = false; };
+    }
+
+    if (selectedSite?.audioUrl && (
+      !selectedSite.code || selectedSite.audioLang === audioLanguage.id
+    )) {
+      setAudioError('');
+      setAudioLoading(true);
+      setReadyAudioSiteId(null);
+      audioLoadAwaitingSiteRef.current = selectedSite.id;
+      audioPlayer.replace(selectedSite.audioUrl);
+      return () => { isActive = false; };
+    }
+
+    audioPlayer.pause();
+    if (!selectedSite?.code) {
+      setAudioLoading(false);
+      return () => { isActive = false; };
+    }
+
+    setAudioLoading(true);
+    fetchSiteAudio(selectedSite.code, audioLanguage.id)
+      .then((translation) => {
+        if (!isActive) return;
+        const updatedSite = {
+          ...selectedSite,
+          audioUrl: translation.audioUrl,
+          audioLang: audioLanguage.id,
+          story: translation.description || selectedSite.story,
+        };
+        setSiteList((current) => current.map((site) =>
+          site.id === updatedSite.id ? { ...site, ...updatedSite } : site
+        ));
+        setSelectedSite((current) =>
+          current?.id === updatedSite.id ? { ...current, ...updatedSite } : current
+        );
+        setAudioError('');
+      })
+      .catch((error) => {
+        if (!isActive) return;
+        console.error('Không thể tải audio của di tích:', error);
+        setAudioError(error.message);
+        setAudioLoading(false);
+        setPendingAutoPlaySiteId(null);
+      });
+
+    return () => { isActive = false; };
+  }, [activeTab, audioPlayer, audioLanguage.id, mapAudioSiteId, pendingAutoPlaySiteId, screen, selectedSite?.id, selectedSite?.code, selectedSite?.audioUrl, selectedSite?.audioLang]);
 
   useEffect(() => {
-    if (audioStatus.error) showToast('Không thể tải audio từ máy chủ. Hãy kiểm tra kết nối BE.');
+    if (audioPlayer.isLoaded
+      && audioLoadAwaitingSiteRef.current === selectedSite?.id) {
+      setReadyAudioSiteId(selectedSite.id);
+      audioLoadAwaitingSiteRef.current = null;
+    }
+  }, [audioPlayer, audioStatus, selectedSite?.audioUrl, selectedSite?.id]);
+
+  useEffect(() => {
+    if ((screen === 'detail' || mapAudioSiteId === selectedSite?.id
+      || pendingAutoPlaySiteId === selectedSite?.id)
+      && readyAudioSiteId === selectedSite?.id) {
+      setAudioLoading(false);
+    }
+  }, [mapAudioSiteId, pendingAutoPlaySiteId, readyAudioSiteId, screen, selectedSite?.id]);
+
+  useEffect(() => {
+    if (audioStatus.error) {
+      setAudioLoading(false);
+      setAudioError(audioStatus.error);
+      setPendingAutoPlaySiteId(null);
+      showToast(`Không phát được audio: ${audioStatus.error}`);
+    }
   }, [audioStatus.error]);
+
+  useEffect(() => {
+    if (!pendingAutoPlaySiteId
+      || selectedSite?.id !== pendingAutoPlaySiteId
+      || !selectedSite?.audioUrl
+      || readyAudioSiteId !== selectedSite.id) return;
+
+    audioPlayer.play();
+    if (activeTab === 'map') setMapAudioSiteId(selectedSite.id);
+    setPendingAutoPlaySiteId(null);
+    showToast(`Mô phỏng đã đến gần ${selectedSite.name}: đang phát thuyết minh.`);
+  }, [activeTab, audioPlayer, pendingAutoPlaySiteId, readyAudioSiteId, selectedSite?.audioUrl, selectedSite?.id]);
 
   const showToast = (message) => {
     setToast(message);
@@ -164,9 +267,11 @@ useEffect(() => {
   };
 
   const openDetail = (site) => {
+    setPendingAutoPlaySiteId(null);
     setSelectedSite(site);
     setScreen('detail');
     audioPlayer.pause();
+    audioPlayer.replace(null);
   };
 
   const selectTab = (key) => {
@@ -175,23 +280,42 @@ useEffect(() => {
     audioPlayer.pause();
   };
 
-  const onQRScanned = ({ data }) => {
-    const match = siteList.find((site) => site.slug && data.toLowerCase().includes(site.slug));
-    if (match) {
-      setSelectedSite(match);
-      setScreen('detail');
-    }
-    showToast(match ? `Đã nhận diện ${match.name}` : 'Mã QR chưa có trong danh mục');
-  };
-
   const playSelectedAudio = () => {
+    if (audioLoading) {
+      showToast('Đang chuẩn bị audio, vui lòng đợi một chút.');
+      return;
+    }
     if (!selectedSite?.audioUrl) {
-      showToast('Di tích này chưa có audio từ máy chủ.');
+      showToast(audioError || 'Di tích này chưa có audio từ máy chủ.');
+      return;
+    }
+    if (!audioStatus.isLoaded) {
+      showToast('Audio đang tải, vui lòng đợi một chút rồi thử lại.');
       return;
     }
     if (playing) audioPlayer.pause();
     else audioPlayer.play();
   };
+
+  const playMapAudio = (site) => {
+    if (audioLoading || !audioStatus.isLoaded || selectedSite?.id !== site.id) {
+      showToast('Audio đang được chuẩn bị. Vui lòng đợi một chút.');
+      return;
+    }
+    if (playing) audioPlayer.pause();
+    else audioPlayer.play();
+  };
+
+  const simulateArrival = useCallback((site) => {
+    audioPlayer.pause();
+    audioPlayer.replace(null);
+    setAudioError('');
+    setMapAudioSiteId(null);
+    setPendingAutoPlaySiteId(site.id);
+    setSelectedSite(site);
+    setActiveTab('map');
+    setScreen('main');
+  }, [audioPlayer]);
 
   const seekSelectedAudio = (amount) => {
     const duration = audioStatus.duration || durationSeconds(selectedSite?.duration || '00:00');
@@ -211,11 +335,12 @@ useEffect(() => {
       const userLat = location.coords.latitude;
       const userLng = location.coords.longitude;
 
-      // 2. Tính khoảng cách, lọc bán kính 2km và sắp xếp
-      // Dùng mảng 'sites' gốc (import từ heritage.js) để luôn có dữ liệu dù rớt mạng
-      const nearbySites = sites
+      await fetchNearbySites(userLat, userLng, audioLanguage.id);
+
+      // Tính khoảng cách với danh sách đã đồng bộ từ backend.
+      const nearbySites = siteList
         .map(site => {
-          if (!site.latitude || !site.longitude) return { ...site, realDist: 99999 };
+          if (site.latitude == null || site.longitude == null) return { ...site, realDist: 99999 };
           
           // Dùng hàm tính khoảng cách (ra đơn vị mét)
           const dist = calculateDistance(userLat, userLng, site.latitude, site.longitude);
@@ -253,17 +378,27 @@ useEffect(() => {
   const retryFetchSites = () => {
     setApiLoading(true);
     setApiError('');
-    fetchSites(language.code)
+    fetchSites()
       .then((records) => {
-        const remoteSites = adaptSiteRecords(records);
+      const remoteSites = records.length ? records : sites;
         setSiteList(remoteSites);
         setSelectedSite((current) => remoteSites.find((site) => site.id === current?.id) || remoteSites[0] || null);
-      })
-      .catch((error) => setApiError(error.message))
-      .finally(() => setApiLoading(false));
+      setApiError('');
+    })
+    .catch((error) => {
+      setApiError(error.message);
+      setSiteList(sites);
+      setSelectedSite((current) => current || sites[0] || null);
+    })
+    .finally(() => setApiLoading(false));
   };
 
+  useEffect(() => {
+    void retryFetchSites();
+  }, []);
+
   return (
+    <UiLanguageContext.Provider value={appLanguage.id}>
     <SafeAreaProvider>
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <ExpoStatusBar style={screen === 'detail' ? 'light' : 'dark'} />
@@ -272,8 +407,10 @@ useEffect(() => {
         <DetailScreen
           site={selectedSite}
           sites={siteList}
-          language={language}
+          language={audioLanguage}
           playing={playing}
+          audioLoading={audioLoading}
+          audioError={audioError}
           elapsed={elapsed}
           duration={audioStatus.duration || durationSeconds(selectedSite?.duration || '00:00')}
           isSaved={savedIds.includes(selectedSite.id)}
@@ -281,27 +418,18 @@ useEffect(() => {
           onPlay={playSelectedAudio}
           onSeek={seekSelectedAudio}
           onSave={() => toggleSaved(selectedSite)}
-          onLanguage={() => setLanguagePicker(true)}
+          onLanguage={() => openLanguagePicker('audio')}
           onOpenSite={openDetail}
-        />
-      ) : screen === 'scanner' ? (
-        <ScannerScreen
-          permission={permission}
-          requestPermission={requestPermission}
-          onBack={() => setScreen('main')}
-          onScanned={onQRScanned}
-          onManual={() => siteList[0] && openDetail(siteList[0])}
         />
       ) : (
         <>
           {activeTab === 'home' && (
             <HomeScreen
-              language={language}
+              language={appLanguage}
               sites={siteList}
               savedIds={savedIds}
-              onLanguage={() => setLanguagePicker(true)}
+              onLanguage={() => openLanguagePicker('app')}
               onSearch={() => { setActiveTab('explore'); setScreen('main'); }}
-              onScan={() => setScreen('scanner')}
               onOpenSite={openDetail}
               onSave={toggleSaved}
               onMap={() => selectTab('map')}
@@ -311,33 +439,42 @@ useEffect(() => {
           )}
           {activeTab === 'explore' && (
             <ExploreScreen
-              language={language}
+              language={appLanguage}
               search={search}
               setSearch={setSearch}
               category={category}
               setCategory={setCategory}
               sites={filteredSites}
               savedIds={savedIds}
-              onLanguage={() => setLanguagePicker(true)}
+              onLanguage={() => openLanguagePicker('app')}
               onOpenSite={openDetail}
               onSave={toggleSaved}
-              onScan={() => setScreen('scanner')}
             />
           )}
           {activeTab === 'map' && (
             <MapScreen
-              language={language}
+              language={appLanguage}
+              audioLanguage={audioLanguage}
               sites={siteList}
-              onLanguage={() => setLanguagePicker(true)}
+              onLanguage={() => openLanguagePicker('app')}
+              onAudioLanguage={() => openLanguagePicker('audio')}
               onOpenSite={openDetail}
-              onScan={() => setScreen('scanner')}
+              onSimulateArrival={simulateArrival}
+              mapAudioSiteId={mapAudioSiteId}
+              mapAudioPending={pendingAutoPlaySiteId === selectedSite?.id}
+              mapAudioPlaying={playing}
+              mapAudioLoading={audioLoading}
+              mapAudioError={audioError}
+              mapAudioElapsed={elapsed}
+              mapAudioDuration={audioStatus.duration}
+              onToggleMapAudio={playMapAudio}
             />
           )}
           {activeTab === 'saved' && (
             <SavedScreen
-              language={language}
+              language={appLanguage}
               savedSites={siteList.filter((site) => savedIds.includes(site.id))}
-              onLanguage={() => setLanguagePicker(true)}
+              onLanguage={() => openLanguagePicker('app')}
               onOpenSite={openDetail}
               onSave={toggleSaved}
               onExplore={() => selectTab('explore')}
@@ -345,43 +482,29 @@ useEffect(() => {
           )}
           {activeTab === 'profile' && (
             <ProfileScreen
-              language={language}
+              language={appLanguage}
               autoPlay={autoPlay}
               savedCount={savedIds.length}
               setAutoPlay={setAutoPlay}
-              onLanguage={() => setLanguagePicker(true)}
-              onScan={() => setScreen('scanner')}
+              onLanguage={() => openLanguagePicker('app')}
+              audioLanguage={audioLanguage}
+              onAudioLanguage={() => openLanguagePicker('audio')}
               onNotify={showToast}
             />
           )}
-          {activeTab === 'profile' && (
-            <ProfileScreen
-              language={language}
-              autoPlay={autoPlay}
-              savedCount={savedIds.length}
-              setAutoPlay={setAutoPlay}
-              onLanguage={() => setLanguagePicker(true)}
-              onScan={() => setScreen('scanner')}
-              onNotify={showToast}
-            />
-          )}
-          
-          {/* --- BẮT ĐẦU THÊM MỚI: MINI PLAYER DỌC ĐƯỜNG --- */}
-          {autoPlay && screen === 'main' && (
+          {autoPlay && screen === 'main' && activeTab !== 'map' && (
             <View style={styles.globalMiniPlayer}>
-              <View style={styles.miniPlayerProgress} />
-              <View style={styles.miniPlayerContent}>
-                <View style={styles.miniPlayerIcon}>
-                  <Headphones size={16} color="#fff" />
-                </View>
+              <View style={[styles.miniPlayerProgress, { width: `${Math.min(100, audioStatus.duration ? (elapsed / audioStatus.duration) * 100 : 0)}%` }]} />
+              <Pressable style={styles.miniPlayerContent} onPress={() => setScreen('detail')}>
+                <View style={styles.miniPlayerIcon}><Headphones size={16} color="#fff" /></View>
                 <View style={styles.miniPlayerInfo}>
-                  <Text style={styles.miniPlayerEyebrow}>THUYẾT MINH OUTDOOR</Text>
-                  <Text numberOfLines={1} style={styles.miniPlayerTitle}>Văn hóa cà phê bệt Hàn Thuyên</Text>
+                  <Text style={styles.miniPlayerEyebrow}>{playing ? `ĐANG PHÁT · ${formatDuration(elapsed)}` : 'THUYẾT MINH OUTDOOR'}</Text>
+                  <Text numberOfLines={1} style={styles.miniPlayerTitle}>{selectedSite?.name || 'Chọn di tích để nghe'}</Text>
                 </View>
-                <Pressable style={styles.miniPlayerBtn}>
-                  <Pause size={15} color={ink} fill={ink} />
+                <Pressable style={styles.miniPlayerBtn} onPress={(event) => { event.stopPropagation(); playSelectedAudio(); }}>
+                  {playing ? <Pause size={15} color={ink} fill={ink} /> : <Play size={15} color={ink} fill={ink} />}
                 </Pressable>
-              </View>
+              </Pressable>
             </View>
           )}
           <BottomTabs activeTab={activeTab} onChange={selectTab} />
@@ -390,17 +513,29 @@ useEffect(() => {
 
       <LanguagePicker
         visible={languagePicker}
-        selected={language}
+        selected={(languagePickerMode === 'audio' ? audioLanguage : appLanguage).id}
+        mode={languagePickerMode}
         onClose={() => setLanguagePicker(false)}
-        onSelect={(item) => { setLanguage(item); setLanguagePicker(false); showToast(`Đã đổi sang ${item.name}`); }}
+        onSelect={(item) => {
+          if (languagePickerMode === 'audio') {
+            if (item.id !== audioLanguage.id
+              && activeTab === 'map' && mapAudioSiteId === selectedSite?.id
+              && audioStatus.playing) {
+              setPendingAutoPlaySiteId(selectedSite.id);
+            }
+            setAudioLanguage(item);
+          } else setAppLanguage(item);
+          setLanguagePicker(false);
+        }}
       />
       {!!toast && <View style={styles.toast}><Check size={15} color="#fff" /><Text style={styles.toastText}>{toast}</Text></View>}
     </SafeAreaView>
     </SafeAreaProvider>
+    </UiLanguageContext.Provider>
   );
 }
 
-function AppHeader({ language, onLanguage, title, subtitle, dark = false, onScan }) {
+function AppHeader({ language, onLanguage, title, subtitle, dark = false }) {
   return (
     <View style={[styles.appHeader, dark && styles.headerOnDark]}>
       <View style={styles.headerTitles}>
@@ -413,9 +548,8 @@ function AppHeader({ language, onLanguage, title, subtitle, dark = false, onScan
         {!!subtitle && <Text style={[styles.headerSubtitle, dark && styles.headerSubtitleDark]}>{subtitle}</Text>}
       </View>
       <View style={styles.headerActions}>
-        {onScan && <Pressable style={[styles.roundButton, dark && styles.roundButtonDark]} onPress={onScan} accessibilityLabel="Quét mã QR"><QrCode size={18} color={dark ? '#fff' : ink} /></Pressable>}
         <Pressable style={[styles.languageButton, dark && styles.languageButtonDark]} onPress={onLanguage}>
-          <Text style={styles.languageFlag}>{language.flag}</Text><Text style={[styles.languageCode, dark && styles.textWhite]}>{language.code}</Text><ChevronDown size={12} color={dark ? '#fff' : ink} />
+          <Text style={styles.languageFlag}>{language.flag}</Text><Text style={[styles.languageCode, dark && styles.textWhite]}>{language.id.toUpperCase()}</Text><ChevronDown size={12} color={dark ? '#fff' : ink} />
         </Pressable>
       </View>
     </View>
@@ -436,7 +570,7 @@ function ApiStatusBanner({ loading, error, apiUrl, onRetry }) {
   );
 }
 
-function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch, onScan, onOpenSite, onSave, onMap, onSeeAll, onNearby }) {
+function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch, onOpenSite, onSave, onMap, onSeeAll, onNearby }) {
   const [slide, setSlide] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
   const carouselRef = useRef(null);
@@ -462,9 +596,9 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch,
   };
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={Platform.OS === 'web'}>
-      <AppHeader language={language} onLanguage={onLanguage} onScan={onScan} />
+      <AppHeader language={language} onLanguage={onLanguage} />
       <View style={styles.homeGreeting}>
-        <View><Text style={styles.greetingKicker}>{todayLabel()}</Text><Text style={styles.greetingTitle}>Chào buổi sáng <Text style={styles.wave}>☀️</Text></Text><Text style={styles.greetingSub}>Hôm nay mình cùng khám phá nhé.</Text></View>
+        <View><Text style={styles.greetingKicker}>{todayLabel(language.id)}</Text><Text style={styles.greetingTitle}>Chào buổi sáng <Text style={styles.wave}>☀️</Text></Text><Text style={styles.greetingSub}>Hôm nay mình cùng khám phá nhé.</Text></View>
         <Pressable style={styles.avatarButton} onPress={() => {}}><Text style={styles.avatarInitial}>Q1</Text><View style={styles.onlineDot} /></Pressable>
       </View>
       <Pressable style={styles.searchLauncher} onPress={onSearch}>
@@ -611,15 +745,18 @@ function QuickAction({ icon: Icon, label, tone, onPress }) {
 }
 
 function MiniPlaceCard({ site, onPress }) {
-  return <Pressable style={styles.miniPlaceCard} onPress={onPress}><View style={[styles.miniArtwork, { backgroundColor: site.paint[0] }]}><LinearGradient colors={site.paint} style={StyleSheet.absoluteFill} /><BuildingIllustration color={site.paint[2]} /><View style={styles.miniDistance}><Navigation size={9} color="#fff" /><Text style={styles.miniDistanceText}>{site.distance}</Text></View></View><View style={styles.miniPlaceInfo}><Text numberOfLines={1} style={styles.miniPlaceTitle}>{site.name}</Text><Text style={styles.miniPlaceCategory}>{site.category}</Text><View style={styles.miniAudio}><Headphones size={11} color={accent} /><Text>{site.duration} thuyết minh</Text></View></View></Pressable>;
+  const paint = Array.isArray(site.paint) && site.paint.length >= 3
+    ? site.paint
+    : ['#312723', '#91654B', '#E2B78B'];
+  return <Pressable style={styles.miniPlaceCard} onPress={onPress}><View style={[styles.miniArtwork, { backgroundColor: paint[0] }]}><LinearGradient colors={paint} style={StyleSheet.absoluteFill} /><BuildingIllustration color={paint[2]} /><View style={styles.miniDistance}><Navigation size={9} color="#fff" /><Text style={styles.miniDistanceText}>{site.distance || 'Quận 1'}</Text></View></View><View style={styles.miniPlaceInfo}><Text numberOfLines={1} style={styles.miniPlaceTitle}>{site.name}</Text><Text style={styles.miniPlaceCategory}>{site.category || 'Điểm tham quan'}</Text><View style={styles.miniAudio}><Headphones size={11} color={accent} /><Text>{site.duration ? `${site.duration} thuyết minh` : 'Thuyết minh'}</Text></View></View></Pressable>;
 }
 
-function ExploreScreen({ language, search, setSearch, category, setCategory, sites: list, savedIds, onLanguage, onOpenSite, onSave, onScan }) {
+function ExploreScreen({ language, search, setSearch, category, setCategory, sites: list, savedIds, onLanguage, onOpenSite, onSave }) {
   const categoryDrag = useMouseDragScroll();
   const categories = ['Tất cả', 'Lịch sử', 'Kiến trúc', 'Bảo tàng', 'Văn hóa'];
   return <View style={styles.fill}>
-    <AppHeader language={language} onLanguage={onLanguage} onScan={onScan} title="Khám phá" subtitle="Mỗi góc phố, một câu chuyện." />
-    <View style={styles.exploreSearch}><Search size={17} color={muted} /><TextInput value={search} onChangeText={setSearch} placeholder="Tìm di tích, đường phố..." placeholderTextColor="#aaa39d" style={styles.exploreInput} returnKeyType="search" /><Pressable style={styles.filterButton} onPress={() => setCategory(category === 'Tất cả' ? 'Lịch sử' : 'Tất cả')}><SlidersHorizontal size={17} color={ink} /></Pressable></View>
+    <AppHeader language={language} onLanguage={onLanguage} title="Khám phá" subtitle="Mỗi góc phố, một câu chuyện." />
+    <View style={styles.exploreSearch}><Search size={17} color={muted} /><LocalizedTextInput value={search} onChangeText={setSearch} placeholder="Tìm di tích, đường phố..." placeholderTextColor="#aaa39d" style={styles.exploreInput} returnKeyType="search" /><Pressable style={styles.filterButton} onPress={() => setCategory(category === 'Tất cả' ? 'Lịch sử' : 'Tất cả')}><SlidersHorizontal size={17} color={ink} /></Pressable></View>
     <ScrollView {...categoryDrag} horizontal showsHorizontalScrollIndicator={false} onWheel={Platform.OS === 'web' ? scrollHorizontallyWithWheel : undefined} contentContainerStyle={styles.categoryChips}>{categories.map((item) => <Pressable key={item} onPress={() => setCategory(item)} style={[styles.categoryChip, category === item && styles.categoryChipActive]}><Text style={[styles.categoryChipText, category === item && styles.categoryChipTextActive]}>{item}</Text></Pressable>)}</ScrollView>
     <View style={styles.exploreResults}><Text style={styles.resultCount}>{list.length} ĐIỂM THAM QUAN</Text><View style={styles.nearbyStatus}><View style={styles.liveDotSmall} /><Text>GẦN BẠN</Text></View></View>
     <ScrollView style={styles.exploreList} contentContainerStyle={styles.exploreListContent} showsVerticalScrollIndicator={Platform.OS === 'web'}>
@@ -702,7 +839,7 @@ function ExploreCard({ site, index, saved, onPress, onSave }) {
   );
 }
 
-function DetailScreen({ site, sites: siteList, language, playing, elapsed, duration, isSaved, onBack, onPlay, onSeek, onSave, onLanguage, onOpenSite }) {
+function DetailScreen({ site, sites: siteList, language, playing, audioLoading, audioError, elapsed, duration, isSaved, onBack, onPlay, onSeek, onSave, onLanguage, onOpenSite }) {
   if (!site) return null;
   site = {
         ...site,
@@ -726,13 +863,14 @@ function DetailScreen({ site, sites: siteList, language, playing, elapsed, durat
         </ImageBackground>
         <BuildingIllustration color={site.paint[2]} large />
         <View style={styles.detailTopBar}><Pressable style={styles.detailRound} onPress={onBack}><ArrowLeft size={19} color="#fff" /></Pressable><View style={styles.detailTopActions}><Pressable style={styles.detailRound} onPress={onSave}><Bookmark size={17} color="#fff" fill={isSaved ? '#fff' : 'transparent'} /></Pressable><Pressable style={styles.detailRound} onPress={() => {}}><MoreHorizontal size={19} color="#fff" /></Pressable></View></View>
-        <View style={styles.detailHeroBottom}><View style={styles.featuredTag}><Sparkles size={11} color="#fff" /><Text>{site.category.toUpperCase()}</Text></View><Text style={styles.detailHeroTitle}>{site.name}</Text><View style={styles.detailHeroAddress}><MapPin size={13} color="#eee" /><Text>{site.address} · {site.distance}</Text></View></View>
+        <View style={styles.detailHeroBottom}><View style={styles.featuredTag}><Sparkles size={11} color="#fff" /><Text style={styles.featuredTagText}>{site.category.toUpperCase()}</Text></View><Text style={styles.detailHeroTitle}>{site.name}</Text><View style={styles.detailHeroAddress}><MapPin size={13} color="#eee" /><Text style={styles.detailHeroAddressText}>{site.address} · {site.distance}</Text></View></View>
       </View>
       <View style={styles.detailContent}>
         <View style={styles.detailAudioCard}>
-          <View style={styles.audioCardTop}><View style={styles.audioLangRow}><View style={styles.audioLangIcon}><Text>{language.flag}</Text></View><View><Text style={styles.audioLangName}>{language.name}</Text><Text style={styles.audioVoice}>Giọng đọc · Nữ miền Nam</Text></View></View><Pressable style={styles.audioChangeLang} onPress={onLanguage}><Languages size={15} color="#756E68" /><ChevronDown size={12} color="#756E68" /></Pressable></View>
-          <View style={styles.audioTrack}><View style={styles.audioTimeRow}><Text>{formatDuration(elapsed)}</Text><Text>{duration ? formatDuration(duration) : site.duration}</Text></View><View style={styles.audioProgress}><View style={[styles.audioProgressFill, { width: progress }]} /><View style={[styles.audioKnob, { left: progress }]} /></View></View>
-          <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable><View style={styles.speedPill}><Text>1x</Text></View></View>
+          <View style={styles.audioCardTop}><View style={styles.audioLangRow}><View style={styles.audioLangIcon}><Text>{language.flag}</Text></View><View><Text style={styles.audioLangName}>{language.name}</Text><Text style={styles.audioVoice}>{voiceLabel(language.id)}</Text></View></View><Pressable style={styles.audioChangeLang} onPress={onLanguage}><Languages size={15} color="#756E68" /><ChevronDown size={12} color="#756E68" /></Pressable></View>
+          <View style={styles.audioTrack}><View style={styles.audioTimeRow}><Text style={styles.audioTimeCurrent}>{formatDuration(elapsed)}</Text><Text style={styles.audioTimeText}>{duration > 0 ? formatDuration(duration) : '--:--'}</Text></View><View style={styles.audioProgress}><View style={[styles.audioProgressFill, { width: progress }]} /><View style={[styles.audioKnob, { left: progress }]} /></View></View>
+          <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{audioLoading ? <ActivityIndicator size="small" color="#fff" /> : playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable><View style={styles.speedPill}><Text>1x</Text></View></View>
+          {!!audioError && <Text style={styles.audioPlaybackError}>{audioError}</Text>}
         </View>
         <View style={styles.detailStoryHeader}><View><Text style={styles.storyEyebrow}>CÂU CHUYỆN DI SẢN</Text><Text style={styles.storyTitle}>Lắng nghe lịch sử</Text></View><Pressable style={styles.shareButton} onPress={() => {}}><Share2 size={16} color="#6E6964" /></Pressable></View>
         <Text style={styles.storyText}>{site.story}</Text>
@@ -747,36 +885,456 @@ function DetailScreen({ site, sites: siteList, language, playing, elapsed, durat
   </View>;
 }
 
-function MapScreen({ language, sites: siteList, onLanguage, onOpenSite, onScan }) {
+function MapScreen({
+  language,
+  audioLanguage,
+  sites: siteList,
+  onLanguage,
+  onAudioLanguage,
+  onOpenSite,
+  onSimulateArrival,
+  mapAudioSiteId,
+  mapAudioPending,
+  mapAudioPlaying,
+  mapAudioLoading,
+  mapAudioError,
+  mapAudioElapsed,
+  mapAudioDuration,
+  onToggleMapAudio,
+}) {
   const [selected, setSelected] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
+  const [locating, setLocating] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
+  const [simulationLocation, setSimulationLocation] = useState(null);
+  const [locationError, setLocationError] = useState('');
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [routing, setRouting] = useState(false);
+  const [routeError, setRouteError] = useState('');
+  const [simulationInfo, setSimulationInfo] = useState(null);
   const mapRef = useRef(null);
+  const simulationRouteCacheRef = useRef({});
+  const realUserLocationRef = useRef(null);
+  const autoLocateStarted = useRef(false);
+  const firstMappedSite = siteList.find((site) => site.latitude != null && site.longitude != null);
+
+  const getCurrentLocation = async () => {
+    const permissionResult = await Location.requestForegroundPermissionsAsync();
+    if (permissionResult.status !== 'granted') {
+      throw new Error('Vị trí đang bị chặn. Hãy bật quyền vị trí cho ứng dụng hoặc trang web rồi thử lại.');
+    }
+    const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    const { latitude, longitude, accuracy } = location.coords;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+      || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      throw new Error('Thiết bị trả về tọa độ GPS không hợp lệ.');
+    }
+    return { latitude, longitude, accuracy };
+  };
+
+  const handleLocateUser = async () => {
+    setLocating(true);
+    setLocationError('');
+    try {
+      const location = await getCurrentLocation();
+      realUserLocationRef.current = location;
+      setUserLocation(location);
+      mapRef.current?.animateToRegion({
+        latitude: location.latitude,
+        longitude: location.longitude,
+        latitudeDelta: 0.04,
+        longitudeDelta: 0.04,
+      }, 700);
+    } catch (error) {
+      console.error('Không thể xác định vị trí hiện tại:', error);
+      setLocationError(translateUiText(error.message, language.id));
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (autoLocateStarted.current) return;
+    autoLocateStarted.current = true;
+    void handleLocateUser();
+  }, []);
 
   // 1. Xử lý gõ tìm kiếm và hiển thị danh sách gợi ý
   const handleSearch = (text) => {
     setSearchQuery(text);
-    if (text.trim() === '') {
+    const query = normalizeSearchText(text);
+    if (!query) {
       setSearchResults([]);
     } else {
-      const results = siteList.filter(s => 
-        (s.name || '').toLowerCase().includes(text.toLowerCase())
-      );
+      const results = siteList.filter((site) => {
+        const searchableText = normalizeSearchText(
+          [site.name, site.address, site.category].filter(Boolean).join(' ')
+        );
+        return searchableText.includes(query);
+      });
       setSearchResults(results);
     }
   };
 
   // 2. Xử lý khi người dùng bấm chọn 1 kết quả tìm kiếm
   const handleSelectResult = (site) => {
+    setRouteInfo(null);
+    setRouteError('');
+    setSimulationInfo(null);
+    setSimulationLocation(null);
     setSelected(site);       // Chọn di tích đó
     setSearchQuery('');      // Xóa chữ đang gõ
-    setSearchResults([]);    // Ẩn danh sách gợi ý
+    setSearchResults([]);
   };
 
-  // 3. Tính năng Chỉ đường (Chuyển tiếp sang Apple Maps hoặc Google Maps)
+  const handleSelectSite = (site) => {
+    setRouteInfo(null);
+    setRouteError('');
+    setSimulationInfo(null);
+    setSimulationLocation(null);
+    setSelected(site);    // Ẩn danh sách gợi ý
+  };
+
+  const simulateWalkToSite = async () => {
+    if (!selected) return;
+    setRouting(true);
+    setRouteError('');
+    setRouteInfo(null);
+    setSimulationInfo(null);
+    setSimulationLocation(null);
+    try {
+      const destination = {
+        latitude: Number(selected.latitude),
+        longitude: Number(selected.longitude),
+      };
+      const radiusMeters = Number(selected.radius ?? 50);
+      const clipRouteAtGeofence = (coordinates) => {
+        if (!coordinates || coordinates.length < 2) return null;
+
+        const distanceToSite = ([longitude, latitude]) => calculateDistance(
+          latitude,
+          longitude,
+          destination.latitude,
+          destination.longitude
+        );
+        const clippedCoordinates = [coordinates[0]];
+        if (distanceToSite(coordinates[0]) <= radiusMeters) return null;
+        let distance = 0;
+
+        for (let index = 1; index < coordinates.length; index += 1) {
+          const previous = coordinates[index - 1];
+          const current = coordinates[index];
+          const segmentDistance = calculateDistance(
+            previous[1],
+            previous[0],
+            current[1],
+            current[0]
+          );
+          const previousDistance = distanceToSite(previous);
+          const currentDistance = distanceToSite(current);
+          let entryFraction = null;
+
+          if (previousDistance > radiusMeters && currentDistance <= radiusMeters) {
+            let outside = 0;
+            let inside = 1;
+            for (let iteration = 0; iteration < 20; iteration += 1) {
+              const fraction = (outside + inside) / 2;
+              const point = [
+                previous[0] + (current[0] - previous[0]) * fraction,
+                previous[1] + (current[1] - previous[1]) * fraction,
+              ];
+              if (distanceToSite(point) > radiusMeters) outside = fraction;
+              else inside = fraction;
+            }
+            entryFraction = (outside + inside) / 2;
+          } else if (previousDistance > radiusMeters && currentDistance > radiusMeters) {
+            let lower = 0;
+            let upper = 1;
+            for (let iteration = 0; iteration < 20; iteration += 1) {
+              const first = (2 * lower + upper) / 3;
+              const second = (lower + 2 * upper) / 3;
+              const firstPoint = [
+                previous[0] + (current[0] - previous[0]) * first,
+                previous[1] + (current[1] - previous[1]) * first,
+              ];
+              const secondPoint = [
+                previous[0] + (current[0] - previous[0]) * second,
+                previous[1] + (current[1] - previous[1]) * second,
+              ];
+              if (distanceToSite(firstPoint) < distanceToSite(secondPoint)) upper = second;
+              else lower = first;
+            }
+            const closestFraction = (lower + upper) / 2;
+            const closestPoint = [
+              previous[0] + (current[0] - previous[0]) * closestFraction,
+              previous[1] + (current[1] - previous[1]) * closestFraction,
+            ];
+            if (distanceToSite(closestPoint) <= radiusMeters) {
+              let outside = 0;
+              let inside = closestFraction;
+              for (let iteration = 0; iteration < 20; iteration += 1) {
+                const fraction = (outside + inside) / 2;
+                const point = [
+                  previous[0] + (current[0] - previous[0]) * fraction,
+                  previous[1] + (current[1] - previous[1]) * fraction,
+                ];
+                if (distanceToSite(point) > radiusMeters) outside = fraction;
+                else inside = fraction;
+              }
+              entryFraction = (outside + inside) / 2;
+            }
+          }
+
+          if (entryFraction != null) {
+            const boundary = [
+              previous[0] + (current[0] - previous[0]) * entryFraction,
+              previous[1] + (current[1] - previous[1]) * entryFraction,
+            ];
+            distance += calculateDistance(previous[1], previous[0], boundary[1], boundary[0]);
+            clippedCoordinates.push(boundary);
+            return { coordinates: clippedCoordinates, distance };
+          }
+
+          distance += segmentDistance;
+          clippedCoordinates.push(current);
+        }
+
+        return null;
+      };
+      const takeLastRouteDistance = (coordinates, distanceToKeep) => {
+        let remainingDistance = distanceToKeep;
+        for (let index = coordinates.length - 1; index > 0; index -= 1) {
+          const previous = coordinates[index - 1];
+          const current = coordinates[index];
+          const segmentDistance = calculateDistance(
+            previous[1],
+            previous[0],
+            current[1],
+            current[0]
+          );
+          if (remainingDistance <= segmentDistance) {
+            const startFraction = segmentDistance > 0
+              ? 1 - remainingDistance / segmentDistance
+              : 0;
+            const start = [
+              previous[0] + (current[0] - previous[0]) * startFraction,
+              previous[1] + (current[1] - previous[1]) * startFraction,
+            ];
+            return [start, ...coordinates.slice(index)];
+          }
+          remainingDistance -= segmentDistance;
+        }
+        return coordinates;
+      };
+      const requestWalkingRoute = async (origin) => {
+        const coordinates = `${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}`;
+        const response = await fetch(
+          `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${coordinates}?overview=full&geometries=geojson&steps=true`
+        );
+        if (!response.ok) {
+          throw new Error(`Máy chủ chỉ đường trả về lỗi HTTP ${response.status}.`);
+        }
+        const data = await response.json();
+        const candidate = data.routes?.[0];
+        return data.code === 'Ok' && candidate?.geometry?.coordinates?.length
+          ? candidate
+          : null;
+      };
+      const routeCacheKey = `${selected.id}:${destination.latitude}:${destination.longitude}:${radiusMeters}`;
+      let route = simulationRouteCacheRef.current[routeCacheKey] || null;
+      let successfulRouteRequests = 0;
+      let lastRouteRequestError = null;
+      const routeSearchRadii = [95, 125, 155];
+      const bearingSeed = selected.code || selected.id;
+      const startBearing = bearingSeed.split('').reduce(
+        (sum, character) => sum + character.charCodeAt(0), 0
+      ) % 360;
+      if (!route) {
+        for (const radiusMetersFromSite of routeSearchRadii) {
+          for (let index = 0; index < 8; index += 1) {
+            const bearing = (startBearing + index * 45) * (Math.PI / 180);
+            const origin = {
+              latitude: destination.latitude + (radiusMetersFromSite * Math.cos(bearing)) / 111320,
+              longitude: destination.longitude + (radiusMetersFromSite * Math.sin(bearing))
+                / (111320 * Math.cos(destination.latitude * (Math.PI / 180))),
+            };
+            let candidateRoute;
+            try {
+              candidateRoute = await requestWalkingRoute(origin);
+              successfulRouteRequests += 1;
+            } catch (error) {
+              lastRouteRequestError = error;
+              console.error('Không thể lấy một tuyến mô phỏng đi bộ:', error);
+              continue;
+            }
+            const clippedRoute = candidateRoute
+              ? clipRouteAtGeofence(candidateRoute.geometry.coordinates)
+              : null;
+            if (!candidateRoute || !clippedRoute || clippedRoute.distance < 70) continue;
+
+            const simulationDistance = Math.min(75, clippedRoute.distance);
+            route = {
+              ...candidateRoute,
+              distance: simulationDistance,
+              duration: candidateRoute.duration * simulationDistance / candidateRoute.distance,
+              geometry: {
+                ...candidateRoute.geometry,
+                coordinates: takeLastRouteDistance(clippedRoute.coordinates, simulationDistance),
+              },
+            };
+            break;
+          }
+          if (route) break;
+        }
+      }
+
+      if (!route) {
+        if (successfulRouteRequests === 0 && lastRouteRequestError) {
+          throw lastRouteRequestError;
+        }
+        throw new Error('Không tìm được tuyến đi bộ thực tế dài khoảng 70-80 m đến vòng di tích này.');
+      }
+      simulationRouteCacheRef.current[routeCacheKey] = route;
+
+      const coordinatesList = route.geometry.coordinates;
+      const routeStart = {
+        longitude: coordinatesList[0][0],
+        latitude: coordinatesList[0][1],
+      };
+      const cumulativeDistances = [0];
+      for (let index = 1; index < coordinatesList.length; index += 1) {
+        cumulativeDistances.push(
+          cumulativeDistances[index - 1]
+            + calculateDistance(
+              coordinatesList[index - 1][1],
+              coordinatesList[index - 1][0],
+              coordinatesList[index][1],
+              coordinatesList[index][0]
+            )
+        );
+      }
+      const stepCount = Math.max(12, Math.min(24, Math.ceil(route.distance / 3)));
+      setSimulationLocation({ ...routeStart, simulated: true });
+      setRouteInfo({
+        distance: formatRouteDistance(route.distance),
+        duration: formatRouteDuration(route.duration),
+        steps: [],
+        coordinates: coordinatesList,
+      });
+      setSimulationInfo({
+        site: selected,
+        coordinates: coordinatesList,
+        cumulativeDistances,
+        stepCount,
+        step: 0,
+        status: 'walking',
+      });
+    } catch (error) {
+      console.error('Không thể bắt đầu mô phỏng đi bộ:', error);
+      setRouteError(error.message || 'Không thể bắt đầu mô phỏng đi bộ.');
+    } finally {
+      setRouting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (simulationInfo?.status !== 'walking') return undefined;
+    const timer = setTimeout(() => {
+      const nextStep = simulationInfo.step + 1;
+      if (nextStep >= simulationInfo.stepCount) {
+        const { site } = simulationInfo;
+        const routeEnd = simulationInfo.coordinates[simulationInfo.coordinates.length - 1];
+        setSimulationLocation({
+          latitude: routeEnd[1],
+          longitude: routeEnd[0],
+          simulated: true,
+        });
+        setSimulationInfo((current) => current
+          ? { ...current, step: current.stepCount, status: 'arrived' }
+          : current);
+        onSimulateArrival(site);
+        return;
+      }
+
+      const totalDistance = simulationInfo.cumulativeDistances[
+        simulationInfo.cumulativeDistances.length - 1
+      ];
+      const targetDistance = totalDistance * nextStep / (simulationInfo.stepCount - 1);
+      let routeIndex = simulationInfo.cumulativeDistances.findIndex(
+        (distance) => distance >= targetDistance
+      ) - 1;
+      routeIndex = Math.max(0, Math.min(routeIndex, simulationInfo.coordinates.length - 2));
+      const segmentStart = simulationInfo.cumulativeDistances[routeIndex];
+      const segmentEnd = simulationInfo.cumulativeDistances[routeIndex + 1];
+      const segmentProgress = segmentEnd > segmentStart
+        ? (targetDistance - segmentStart) / (segmentEnd - segmentStart)
+        : 0;
+      const startCoordinate = simulationInfo.coordinates[routeIndex];
+      const endCoordinate = simulationInfo.coordinates[routeIndex + 1];
+      const longitude = startCoordinate[0] + (endCoordinate[0] - startCoordinate[0]) * segmentProgress;
+      const latitude = startCoordinate[1] + (endCoordinate[1] - startCoordinate[1]) * segmentProgress;
+      setSimulationLocation({ latitude, longitude, simulated: true });
+      setSimulationInfo((current) => current
+        ? { ...current, step: nextStep }
+        : current);
+    }, 650);
+
+    return () => clearTimeout(timer);
+  }, [onSimulateArrival, simulationInfo]);
+
+  const stopSimulation = () => {
+    setSimulationInfo(null);
+    setSimulationLocation(null);
+    setRouteInfo(null);
+  };
+
+  // 3. Show directions inside the web map; open the maps app on native.
   const handleGetDirections = async () => {
-    if (!selected || !selected.latitude || !selected.longitude) {
-      alert("Di tích này chưa được cập nhật tọa độ trên hệ thống.");
+    if (!selected || selected.latitude == null || selected.longitude == null
+      || !Number.isFinite(Number(selected.latitude)) || !Number.isFinite(Number(selected.longitude))) {
+      alert(translateUiText('Di tích này chưa được cập nhật tọa độ trên hệ thống.', language.id));
+      return;
+    }
+
+    if (Platform.OS === 'web') {
+      setRouting(true);
+      setRouteError('');
+      setRouteInfo(null);
+      try {
+        const origin = userLocation || await getCurrentLocation();
+        if (!origin.simulated) realUserLocationRef.current = origin;
+        setUserLocation(origin);
+        const coordinates = `${origin.longitude},${origin.latitude};${selected.longitude},${selected.latitude}`;
+        const response = await fetch(
+          `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${coordinates}?overview=full&geometries=geojson&steps=true`
+        );
+        if (!response.ok) throw new Error(`Máy chủ chỉ đường trả về lỗi HTTP ${response.status}.`);
+        const data = await response.json();
+        const route = data.routes?.[0];
+        if (data.code !== 'Ok' || !route?.geometry?.coordinates?.length) {
+          throw new Error('Không tìm được tuyến đường đến di tích này.');
+        }
+
+        const steps = route.legs?.flatMap((leg) => leg.steps || [])
+          .map((step) => ({
+            instruction: describeRouteManeuver(step.maneuver, step.name),
+            distance: formatRouteDistance(step.distance),
+          }))
+          .filter((step) => step.instruction) || [];
+        const coordinatesList = route.geometry.coordinates;
+        setRouteInfo({
+          distance: formatRouteDistance(route.distance),
+          duration: formatRouteDuration(route.duration),
+          steps,
+          coordinates: coordinatesList,
+        });
+      } catch (error) {
+        console.error('Không thể tạo tuyến đường trong ứng dụng:', error);
+        setRouteError(error.message || 'Không thể tải tuyến đường. Vui lòng thử lại.');
+      } finally {
+        setRouting(false);
+      }
       return;
     }
 
@@ -793,14 +1351,16 @@ function MapScreen({ language, sites: siteList, onLanguage, onOpenSite, onScan }
       // Cơ chế dự phòng: Mở Google Maps trên trình duyệt Safari/Chrome
       const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${selected.latitude},${selected.longitude}`;
       Linking.openURL(fallbackUrl).catch(() => {
-        alert("Không thể mở tính năng chỉ đường trên thiết bị của bạn.");
+        alert(translateUiText('Không thể mở tính năng chỉ đường trên thiết bị của bạn.', language.id));
       });
     }
   };
 
   // 4. Tự động zoom và đưa bản đồ về vị trí được chọn
   useEffect(() => {
-    if (selected && mapRef.current && selected.latitude && selected.longitude) {
+    if (selected && mapRef.current
+      && selected.latitude != null && selected.longitude != null
+      && Number.isFinite(Number(selected.latitude)) && Number.isFinite(Number(selected.longitude))) {
       mapRef.current.animateToRegion({
         latitude: selected.latitude,
         longitude: selected.longitude,
@@ -810,38 +1370,34 @@ function MapScreen({ language, sites: siteList, onLanguage, onOpenSite, onScan }
     }
   }, [selected]);
 
+  useEffect(() => {
+    if (routeInfo?.coordinates?.length) {
+      mapRef.current?.fitCoordinates(routeInfo.coordinates);
+    }
+  }, [routeInfo?.coordinates]);
+
   return (
     <View style={{ flex: 1, backgroundColor: '#E1E9DD' }}>
-      <MapView
+      <MapCanvas
         ref={mapRef}
-        style={{ width: '100%', height: '100%' }}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
+        sites={siteList}
+        selected={selected}
+        userLocation={userLocation}
+        simulationLocation={simulationLocation}
+        routeCoordinates={routeInfo?.coordinates}
+        onSelect={handleSelectSite}
         initialRegion={{
-          latitude: 10.7769,
-          longitude: 106.7009,
+          latitude: firstMappedSite?.latitude ?? 10.7769,
+          longitude: firstMappedSite?.longitude ?? 106.7009,
           latitudeDelta: 0.05,
           longitudeDelta: 0.05,
         }}
-      >
-        {siteList.map((site) => (
-          site.latitude && site.longitude ? (
-            <Marker
-              key={site.id}
-              coordinate={{ latitude: site.latitude, longitude: site.longitude }}
-              title={site.name}
-              pinColor={selected?.id === site.id ? '#F04D2E' : '#78927B'}
-              onPress={() => setSelected(site)}
-            />
-          ) : null
-        ))}
-      </MapView>
+      />
 
-      {/* THANH TÌM KIẾM TRÊN CÙNG */}
       <View style={styles.realMapTopBar}>
         <View style={styles.realMapSearchBox}>
           <Search size={18} color="#999" />
-          <TextInput
+          <LocalizedTextInput
             style={styles.realMapSearchInput}
             placeholder="Tìm Bến Nhà Rồng, Dinh Độc Lập..."
             value={searchQuery}
@@ -852,7 +1408,34 @@ function MapScreen({ language, sites: siteList, onLanguage, onOpenSite, onScan }
               <X size={16} color="#999" />
             </Pressable>
           )}
+          <View style={styles.mapSearchDivider} />
+          <Pressable
+            style={styles.mapSearchLocate}
+            onPress={handleLocateUser}
+            disabled={locating}
+            accessibilityLabel="Đưa bản đồ đến vị trí hiện tại"
+          >
+            {locating
+              ? <ActivityIndicator size="small" color="#4285F4" />
+              : <LocateFixed size={19} color="#4285F4" />}
+          </Pressable>
         </View>
+        {!!userLocation && (
+          <View style={styles.locationStatus}>
+            <View style={styles.locationStatusDot} />
+            <Text style={styles.locationStatusText}>
+              {userLocation.simulated
+                ? 'Đang mô phỏng di chuyển'
+                : `Vị trí hiện tại${Number.isFinite(userLocation.accuracy) ? ` · ±${Math.round(userLocation.accuracy)} m` : ''}`}
+            </Text>
+          </View>
+        )}
+        {!!locationError && (
+          <Pressable style={styles.locationError} onPress={() => setLocationError('')}>
+            <Text style={styles.locationErrorText}>{locationError}</Text>
+            <X size={15} color="#8D4938" />
+          </Pressable>
+        )}
 
         {/* DANH SÁCH KẾT QUẢ GỢI Ý XỔ XUỐNG */}
         {searchResults.length > 0 && (
@@ -865,35 +1448,127 @@ function MapScreen({ language, sites: siteList, onLanguage, onOpenSite, onScan }
             ))}
           </ScrollView>
         )}
+        {!!searchQuery.trim() && searchResults.length === 0 && (
+          <View style={styles.searchDropdown}>
+            <Text style={styles.searchEmptyText}>Không tìm thấy di tích phù hợp.</Text>
+          </View>
+        )}
       </View>
 
-      {/* THẺ HIỂN THỊ THÔNG TIN & NÚT CHỈ ĐƯỜNG */}
-      {selected && (
+      {selected && !routeInfo && !mapAudioPending
+        && (!simulationInfo || simulationInfo.status === 'arrived' && !mapAudioLoading)
+        && mapAudioSiteId !== selected.id && (
         <View style={styles.realMapBottomCard}>
-          <Pressable style={styles.mapSelectedCard} onPress={() => onOpenSite(selected)}>
-            <View style={[styles.mapSelectedArtwork, { backgroundColor: selected.paint?.[0] || '#F04D2E' }]}>
-              <BuildingIllustration color={selected.paint?.[2] || '#ffffff'} />
+          <View style={styles.mapSelectedCard}>
+            <View style={styles.mapSheetHandle} />
+            <View style={styles.mapPlaceEyebrow}>
+              <MapPin size={12} color="#4285F4" />
+              <Text style={styles.mapPlaceEyebrowText}>ĐỊA ĐIỂM GẦN BẠN</Text>
             </View>
-            <View style={styles.mapSelectedCopy}>
-              <Text numberOfLines={1} style={styles.mapSelectedTitle}>{selected.name}</Text>
-              <Text style={styles.mapSelectedAddress}>{selected.address}</Text>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 9 }}>
-                
-                <View style={styles.mapSelectedAction}>
-                  <Headphones size={13} color="#fff" />
-                  <Text style={styles.mapSelectedActionText}>Nghe</Text>
-                </View>
-                
-                {/* NÚT CHỈ ĐƯỜNG */}
-                <Pressable style={styles.directionButton} onPress={handleGetDirections}>
-                  <Navigation size={13} color="#fff" />
-                  <Text style={styles.mapSelectedActionText}>Chỉ đường</Text>
-                </Pressable>
-
+            <Pressable style={styles.mapSelectedMain} onPress={() => onOpenSite(selected)}>
+              <View style={[styles.mapSelectedArtwork, { backgroundColor: selected.paint?.[0] || '#E8F0FE' }]}>
+                <BuildingIllustration color={selected.paint?.[2] || '#ffffff'} />
               </View>
+              <View style={styles.mapSelectedCopy}>
+                <Text numberOfLines={1} style={styles.mapSelectedTitle}>{selected.name}</Text>
+                <Text style={styles.mapSelectedAddress}>{selected.address}</Text>
+              </View>
+              <ChevronRight size={17} color="#aaa39d" />
+            </Pressable>
+            <View style={styles.mapActionRow}>
+              <Pressable
+                style={styles.directionButton}
+                onPress={() => {
+                  if (routeInfo) setRouteInfo(null);
+                  else void handleGetDirections();
+                }}
+                disabled={routing}
+              >
+                {routing ? <ActivityIndicator size="small" color="#fff" /> : <Navigation size={13} color="#fff" />}
+                <Text style={styles.mapSelectedActionText}>
+                  {routing ? 'Đang tìm đường...' : routeInfo ? 'Đóng chỉ đường' : 'Chỉ đường'}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={styles.simulationButton}
+                onPress={() => void simulateWalkToSite()}
+                disabled={routing}
+                accessibilityRole="button"
+                accessibilityLabel={`Mô phỏng 70-80 m đến vòng ${selected.name} và phát audio`}
+              >
+                <Headphones size={13} color="#fff" />
+                <Text style={styles.mapSelectedActionText}>{routing ? 'Đang tạo tuyến...' : 'Mô phỏng 70-80 m'}</Text>
+              </Pressable>
             </View>
-            <ChevronRight size={17} color="#aaa39d" />
+            {!!routeError && <Text style={styles.routeErrorText}>{routeError}</Text>}
+            {!!mapAudioError && <Text style={styles.mapAudioError}>{mapAudioError}</Text>}
+          </View>
+        </View>
+      )}
+      {(!!routeInfo || simulationInfo?.status === 'walking') && simulationInfo?.status !== 'arrived' && (
+        <View style={styles.routeFloatingCard}>
+          <View style={styles.routeFloatingCopy}>
+            <Text numberOfLines={1} style={styles.routeFloatingTitle}>
+              {simulationInfo?.status === 'walking'
+                ? `Đang đi đến ${simulationInfo.site.name} · ${routeInfo?.distance || ''}`
+                : `Tuyến đi bộ · ${routeInfo.distance} · ${routeInfo.duration}`}
+            </Text>
+            {simulationInfo?.status === 'walking' && (
+              <View style={styles.simulationProgressTrack}>
+                <View style={[styles.simulationProgressFill, {
+                  width: `${Math.min(100, Math.round((simulationInfo.step / simulationInfo.stepCount) * 100))}%`,
+                }]} />
+              </View>
+            )}
+            {!simulationInfo?.status && routeInfo.steps.slice(0, 2).map((step, index) => (
+              <Text key={`${index}-${step.instruction}`} numberOfLines={1} style={styles.routeFloatingStep}>
+                {step.instruction}{step.distance ? ` · ${step.distance}` : ''}
+              </Text>
+            ))}
+          </View>
+          <Pressable
+            style={styles.routeFloatingButton}
+            onPress={simulationInfo?.status === 'walking' ? stopSimulation : () => setRouteInfo(null)}
+            accessibilityLabel={simulationInfo?.status === 'walking' ? 'Dừng mô phỏng' : 'Đóng tuyến đường'}
+          >
+            {simulationInfo?.status === 'walking' ? <X size={17} color="#674A38" /> : <X size={17} color="#674A38" />}
           </Pressable>
+        </View>
+      )}
+      {(mapAudioPending || mapAudioSiteId === selected?.id) && selected && (
+        <View style={styles.mapAudioBar}>
+          <Pressable
+            style={styles.mapAudioToggle}
+            onPress={() => onToggleMapAudio(selected)}
+            accessibilityRole="button"
+            accessibilityLabel={mapAudioPlaying ? 'Tạm dừng thuyết minh' : 'Tiếp tục thuyết minh'}
+            disabled={mapAudioLoading}
+          >
+            {mapAudioLoading
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={styles.mapAudioToggleText}>{mapAudioPlaying ? 'Ⅱ' : '▶'}</Text>}
+          </Pressable>
+          <View style={styles.mapAudioCopy}>
+            <Text numberOfLines={1} style={styles.mapAudioTitle}>{selected.name}</Text>
+            {!!mapAudioError && !mapAudioLoading && (
+              <Text numberOfLines={1} style={styles.mapAudioBarError}>{mapAudioError}</Text>
+            )}
+            <View style={styles.mapAudioProgressTrack}>
+              <View style={[styles.mapAudioProgressFill, {
+                width: `${mapAudioDuration > 0 ? Math.min(100, (mapAudioElapsed / mapAudioDuration) * 100) : 0}%`,
+              }]} />
+            </View>
+          </View>
+          <Pressable
+            style={styles.mapAudioLanguage}
+            onPress={onAudioLanguage}
+            accessibilityRole="button"
+            accessibilityLabel={`Đổi ngôn ngữ thuyết minh, hiện tại ${audioLanguage.name}`}
+          >
+            <Text style={styles.mapAudioLanguageFlag}>{audioLanguage.flag}</Text>
+            <Text style={styles.mapAudioLanguageCode}>{audioLanguage.id.toUpperCase()}</Text>
+          </Pressable>
+          <Text style={styles.mapAudioTime}>{formatDuration(mapAudioElapsed)}</Text>
         </View>
       )}
     </View>
@@ -907,15 +1582,15 @@ function SavedScreen({ language, savedSites, onLanguage, onOpenSite, onSave, onE
   </ScrollView></View>;
 }
 
-function ProfileScreen({ language, autoPlay, savedCount, setAutoPlay, onLanguage, onScan, onNotify }) {
+function ProfileScreen({ language, audioLanguage, autoPlay, savedCount, setAutoPlay, onLanguage, onAudioLanguage, onNotify }) {
   return <ScrollView style={styles.screen} contentContainerStyle={styles.profileContent} showsVerticalScrollIndicator={Platform.OS === 'web'}>
     <AppHeader language={language} onLanguage={onLanguage} title="Cá nhân" subtitle="Không gian khám phá của bạn." />
     <View style={styles.profileHero}><LinearGradient colors={['#F8EBDF', '#F5D7C4', '#E8BA9D']} style={StyleSheet.absoluteFill} /><View style={styles.profileAvatarLarge}><Text>Q1</Text><View style={styles.onlineDot} /></View><Text style={styles.profileName}>Người khám phá</Text><Text style={styles.profileSince}>Thành viên từ tháng 10, 2026</Text><View style={styles.profileStats}><View><Text>08</Text><Text>ĐIỂM ĐÃ NGHE</Text></View><View style={styles.profileStatDivider} /><View><Text>{String(savedCount).padStart(2, '0')}</Text><Text>ĐÃ LƯU</Text></View><View style={styles.profileStatDivider} /><View><Text>03</Text><Text>NGÀY KHÁM PHÁ</Text></View></View></View>
     <Text style={styles.profileGroupLabel}>TRẢI NGHIỆM</Text>
     <View style={styles.settingsGroup}>
-      <ProfileRow icon={Languages} title="Ngôn ngữ thuyết minh" subtitle={language.name} onPress={onLanguage} />
+      <ProfileRow icon={Languages} title="Ngôn ngữ giao diện" subtitle={language.name} onPress={onLanguage} />
       <View style={styles.profileSettingRow}><View style={styles.profileRowIcon}><Headphones size={17} color="#4C9C7E" /></View><View style={styles.profileRowCopy}><Text style={styles.profileRowTitle}>Tự động phát gần di tích</Text><Text style={styles.profileRowSub}>Phát khi bạn đến gần điểm tham quan</Text></View><Switch value={autoPlay} onValueChange={setAutoPlay} trackColor={{ false: '#ddd8d2', true: '#F04D2E' }} thumbColor="#fff" /></View>
-      <ProfileRow icon={QrCode} title="Quét mã QR" subtitle="Nghe thuyết minh tại chỗ" onPress={onScan} last />
+      <ProfileRow icon={Headphones} title="Ngôn ngữ thuyết minh" subtitle={audioLanguage.name} onPress={onAudioLanguage} last />
     </View>
     <Text style={styles.profileGroupLabel}>THÔNG TIN</Text>
     <View style={styles.settingsGroup}><ProfileRow icon={CircleHelp} title="Trợ giúp & hỗ trợ" onPress={() => onNotify('Trung tâm trợ giúp sẽ sớm được cập nhật.')} /><ProfileRow icon={Info} title="Về Di Tích Q1" subtitle="Phiên bản 1.0.0" onPress={() => onNotify('Ứng dụng thuyết minh di tích lịch sử Quận 1.')} last /></View>
@@ -927,20 +1602,6 @@ function ProfileRow({ icon: Icon, title, subtitle, onPress, last }) {
   return <Pressable style={[styles.profileSettingRow, last && styles.noBorder]} onPress={onPress}><View style={styles.profileRowIcon}><Icon size={17} color="#E77955" /></View><View style={styles.profileRowCopy}><Text style={styles.profileRowTitle}>{title}</Text>{!!subtitle && <Text style={styles.profileRowSub}>{subtitle}</Text>}</View><ChevronRight size={17} color="#b5aea7" /></Pressable>;
 }
 
-function ScannerScreen({ permission, requestPermission, onBack, onScanned, onManual }) {
-  if (!permission) return <View style={styles.scannerLoading}><ActivityIndicator color={accent} /></View>;
-  return <View style={styles.scannerScreen}><View style={styles.scannerBackdrop}>
-    {permission.granted ? <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onScanned} /> : <LinearGradient colors={['#292521', '#4D3C30', '#1B1A19']} style={StyleSheet.absoluteFill}><View style={styles.scannerBackdropArt}><BuildingIllustration color="#C9A37B" large /></View></LinearGradient>}
-    <LinearGradient colors={['#0009', 'transparent', '#0009']} style={StyleSheet.absoluteFill} />
-    <View style={styles.scannerHeader}><Pressable style={styles.scannerBack} onPress={onBack}><X size={20} color="#fff" /></Pressable><Text style={styles.scannerHeaderTitle}>Quét mã QR</Text><View style={{ width: 40 }} /></View>
-    <View style={styles.scannerCenter}><Text style={styles.scannerTitle}>Tìm câu chuyện{'\n'}ngay trước mắt bạn</Text><Text style={styles.scannerSub}>Đưa mã QR tại di tích vào khung hình để nghe thuyết minh.</Text>
-      <View style={styles.scanFrame}><View style={[styles.scanCorner, styles.scanCornerTL]} /><View style={[styles.scanCorner, styles.scanCornerTR]} /><View style={[styles.scanCorner, styles.scanCornerBL]} /><View style={[styles.scanCorner, styles.scanCornerBR]} />{permission.granted && <View style={styles.scanBeam} />}</View>
-      {permission.granted ? <Text style={styles.cameraReady}>Đang tìm mã QR...</Text> : <Pressable style={styles.permissionButton} onPress={requestPermission}><QrCode size={16} color="#fff" /><Text>Cho phép sử dụng camera</Text></Pressable>}
-    </View>
-    <View style={styles.scannerBottom}><View style={styles.scannerHint}><Sparkles size={15} color="#F4C68E" /><Text>Không tìm thấy mã? Thử chọn di tích thủ công.</Text></View><Pressable style={styles.manualSelect} onPress={onManual}><MapPin size={16} color="#fff" /><Text>Chọn di tích trong danh sách</Text><ArrowRight size={15} color="#fff" /></Pressable></View>
-  </View></View>;
-}
-
 function BottomTabs({ activeTab, onChange }) {
   return <View style={styles.bottomTabs}>{tabs.map(({ key, label, icon: Icon }) => {
     const active = activeTab === key;
@@ -948,10 +1609,10 @@ function BottomTabs({ activeTab, onChange }) {
   })}</View>;
 }
 
-function LanguagePicker({ visible, selected, onClose, onSelect }) {
+function LanguagePicker({ visible, selected, mode, onClose, onSelect }) {
   return <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
     <Pressable style={styles.modalScrim} onPress={onClose}><Pressable style={styles.languageSheet} onPress={(event) => event.stopPropagation()}>
-      <View style={styles.sheetHandle} /><View style={styles.sheetHead}><View><Text style={styles.sheetEyebrow}>CÁ NHÂN HÓA TRẢI NGHIỆM</Text><Text style={styles.sheetTitle}>Chọn ngôn ngữ</Text><Text style={styles.sheetSub}>Nội dung thuyết minh bạn muốn nghe</Text></View><Pressable style={styles.sheetClose} onPress={onClose}><X size={18} color="#77716A" /></Pressable></View>
+      <View style={styles.sheetHandle} /><View style={styles.sheetHead}><View><Text style={styles.sheetEyebrow}>CÁ NHÂN HÓA TRẢI NGHIỆM</Text><Text style={styles.sheetTitle}>Chọn ngôn ngữ</Text><Text style={styles.sheetSub}>{mode === 'audio' ? 'Nội dung thuyết minh bạn muốn nghe' : 'Ngôn ngữ giao diện'}</Text></View><Pressable style={styles.sheetClose} onPress={onClose}><X size={18} color="#77716A" /></Pressable></View>
       {languages.map((item) => (
     <Pressable 
         key={item.id} 
@@ -961,7 +1622,7 @@ function LanguagePicker({ visible, selected, onClose, onSelect }) {
             selected === item.id && styles.languageOptionSelected
         ]} 
         // 2. Trả lại hàm onSelect cũ của bạn
-        onPress={() => onSelect(item.id)}
+        onPress={() => onSelect(item)}
     >
         <View style={styles.languageOptionFlag}>
             <Text>{item.flag}</Text>
@@ -987,16 +1648,36 @@ function LanguagePicker({ visible, selected, onClose, onSelect }) {
 }
 
 function durationSeconds(value) {
-  const [minutes, seconds] = value.split(':').map(Number);
-  return minutes * 60 + seconds;
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
+  if (typeof value !== 'string') return 0;
+  const clock = value.match(/^\s*(\d+):([0-5]?\d)\s*$/);
+  if (clock) return Number(clock[1]) * 60 + Number(clock[2]);
+  return 0;
 }
 
-function todayLabel() {
-  return new Intl.DateTimeFormat('vi-VN', {
+function voiceLabel(language) {
+  return {
+    vi: 'Giọng đọc · Nữ miền Nam',
+    en: 'Narration · Female voice',
+    ja: '音声 · 女性の声',
+    zh: '语音 · 女声',
+    fr: 'Narration · Voix féminine',
+  }[language] || 'Audio narration';
+}
+
+function todayLabel(language = 'vi') {
+  const localeByLanguage = {
+    vi: 'vi-VN',
+    en: 'en-US',
+    ja: 'ja-JP',
+    zh: 'zh-CN',
+    fr: 'fr-FR',
+  };
+  return new Intl.DateTimeFormat(localeByLanguage[language] || 'vi-VN', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-  }).format(new Date()).toLocaleUpperCase('vi');
+  }).format(new Date()).toLocaleUpperCase(localeByLanguage[language] || 'vi-VN');
 }
 
 function scrollHorizontallyWithWheel(event) {
@@ -1049,8 +1730,9 @@ function useMouseDragScroll() {
 }
 
 function formatDuration(seconds) {
-  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
-  const remaining = (seconds % 60).toString().padStart(2, '0');
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  const minutes = Math.floor(safeSeconds / 60).toString();
+  const remaining = (safeSeconds % 60).toString().padStart(2, '0');
   return `${minutes}:${remaining}`;
 }
 
@@ -1061,11 +1743,42 @@ const styles = StyleSheet.create({
   searchResultItem: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F0ECE8' },
   searchResultText: { fontSize: 13, fontWeight: '700', color: '#333' },
   searchResultSub: { fontSize: 10, color: '#888', marginTop: 3 },
-  realMapTopBar: { position: 'absolute', top: 50, left: 16, right: 16, zIndex: 10 },
-  realMapSearchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', height: 48, borderRadius: 12, paddingHorizontal: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 5 },
+  searchEmptyText: { paddingHorizontal: 14, paddingVertical: 13, color: '#81786F', fontSize: 12 },
+  realMapTopBar: { position: 'absolute', top: 12, left: 12, right: 12, zIndex: 10 },
+  realMapSearchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', height: 54, borderRadius: 14, paddingHorizontal: 14, shadowColor: '#202124', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 7 },
   realMapSearchInput: { flex: 1, marginLeft: 10, fontSize: 13, color: '#333' },
-  realMapBottomCard: { position: 'absolute', bottom: 20, left: 16, right: 16, zIndex: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 8 },
-  directionButton: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 5, backgroundColor: '#4C9C7E' },
+  mapSearchDivider: { width: 1, height: 28, marginHorizontal: 10, backgroundColor: '#E8EAED' },
+  mapSearchLocate: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18 },
+  locationStatus: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, backgroundColor: '#fff', shadowColor: '#202124', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 5, elevation: 4 },
+  locationStatusDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#4285F4' },
+  locationStatusText: { color: '#3C4043', fontSize: 10, fontWeight: '600' },
+  locationError: { alignSelf: 'flex-start', maxWidth: '94%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: '#fff', shadowColor: '#202124', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 5, elevation: 4 },
+  locationErrorText: { flex: 1, color: '#5F6368', fontSize: 9, lineHeight: 14 },
+  realMapBottomCard: { position: 'absolute', bottom: 12, left: 12, right: 12, zIndex: 10, shadowColor: '#202124', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 9 },
+  routeFloatingCard: { position: 'absolute', bottom: 12, left: 12, right: 12, zIndex: 12, minHeight: 60, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingLeft: 14, paddingRight: 10, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#202124', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 10, elevation: 8 },
+  routeFloatingCopy: { flex: 1, gap: 4 },
+  routeFloatingTitle: { color: '#433B34', fontSize: 11, fontWeight: '800' },
+  routeFloatingStep: { color: '#81786F', fontSize: 9 },
+  routeFloatingButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: '#F1F3F4' },
+  simulationProgressTrack: { height: 4, overflow: 'hidden', borderRadius: 3, backgroundColor: '#EDE8E2' },
+  simulationProgressFill: { height: '100%', borderRadius: 3, backgroundColor: '#F04D2E' },
+  mapAudioBar: { position: 'absolute', bottom: 12, left: 16, right: 16, zIndex: 13, height: 58, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 11, borderRadius: 14, backgroundColor: '#24211E', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 7 },
+  mapAudioLanguage: { minWidth: 44, height: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 5, borderRadius: 9, backgroundColor: '#FFFFFF1A' },
+  mapAudioLanguageFlag: { fontSize: 13 },
+  mapAudioLanguageCode: { color: '#fff', fontSize: 8, fontWeight: '800' },
+  mapAudioToggle: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 18, backgroundColor: accent },
+  mapAudioToggleText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  mapAudioCopy: { flex: 1, gap: 6 },
+  mapAudioTitle: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  mapAudioError: { marginTop: 4, color: '#A43D2A', fontSize: 8, lineHeight: 11 },
+  mapAudioBarError: { color: '#FFC7B8', fontSize: 8 },
+  mapAudioProgressTrack: { height: 3, overflow: 'hidden', borderRadius: 2, backgroundColor: '#FFFFFF40' },
+  mapAudioProgressFill: { height: '100%', borderRadius: 2, backgroundColor: accent },
+  mapAudioTime: { color: '#E9E3DD', fontSize: 9, fontVariant: ['tabular-nums'] },
+  mapActionRow: { flexDirection: 'row', gap: 7 },
+  directionButton: { flex: 1, minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: '#4C9C7E' },
+  simulationButton: { flex: 1, minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8, backgroundColor: '#F04D2E' },
+  audioPlaybackError: { color: '#A43D2A', fontSize: 10, lineHeight: 15 },
   safeArea: { flex: 1, backgroundColor: '#FBFAF8' },
   apiStatusBanner: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#FFF3E9' },
   apiStatusError: { backgroundColor: '#A43D2A' },
@@ -1087,14 +1800,12 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, fontWeight: '800', color: ink, letterSpacing: -0.4 },
   headerSubtitle: { marginTop: 2, color: muted, fontSize: 10 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  roundButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderColor: '#EBE7E2', borderWidth: 1, backgroundColor: '#fff' },
   languageButton: { height: 34, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, borderWidth: 1, borderColor: '#EBE7E2', borderRadius: 11, backgroundColor: '#fff' },
   languageFlag: { fontSize: 14 },
   languageCode: { color: ink, fontSize: 10, fontWeight: '800' },
   headerOnDark: { backgroundColor: 'transparent' },
   headerSubtitleDark: { color: '#ffffffa8' },
   languageButtonDark: { borderColor: '#ffffff40', backgroundColor: '#ffffff18' },
-  roundButtonDark: { borderColor: '#ffffff40', backgroundColor: '#ffffff18' },
   textWhite: { color: '#fff' },
   homeGreeting: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 11, marginBottom: 14 },
   greetingKicker: { color: '#A19A93', fontSize: 8, fontWeight: '800', letterSpacing: 1.15 },
@@ -1239,8 +1950,9 @@ const styles = StyleSheet.create({
   audioVoice: { marginTop: 3, color: '#A19A94', fontSize: 7 },
   audioChangeLang: { flexDirection: 'row', gap: 4, padding: 7, borderWidth: 1, borderColor: '#EFECE8', borderRadius: 7 },
   audioTrack: { marginTop: 15 },
-  audioTimeRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  audioTimeText: { color: '#97908A', fontSize: 7 },
+  audioTimeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 },
+  audioTimeCurrent: { color: ink, fontSize: 11, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  audioTimeText: { color: '#8D867F', fontSize: 10, fontWeight: '600', fontVariant: ['tabular-nums'] },
   audioProgress: { position: 'relative', height: 4, borderRadius: 4, backgroundColor: '#EEEAE6' },
   audioProgressFill: { width: '9%', height: '100%', borderRadius: 4, backgroundColor: accent },
   audioProgressPlaying: { width: '28%' },
@@ -1314,15 +2026,28 @@ const styles = StyleSheet.create({
   mapResultTitle: { marginTop: 3, color: ink, fontSize: 14, fontWeight: '800' },
   resultCountMuted: { color: '#9B948E', fontSize: 9, fontWeight: '500' },
   mapFilterButton: { width: 31, height: 31, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#EAE6E2', borderRadius: 9, backgroundColor: '#fff' },
-  mapSelectedCard: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 7, borderWidth: 1, borderColor: '#EEE9E4', borderRadius: 11, backgroundColor: '#fff' },
-  mapSelectedArtwork: { width: 73, height: 75, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 7 },
+  mapSelectedCard: { gap: 10, paddingHorizontal: 15, paddingTop: 9, paddingBottom: 14, borderRadius: 18, backgroundColor: '#fff' },
+  mapSheetHandle: { alignSelf: 'center', width: 34, height: 4, borderRadius: 2, backgroundColor: '#DADCE0' },
+  mapPlaceEyebrow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  mapPlaceEyebrowText: { color: '#5F6368', fontSize: 8, fontWeight: '800', letterSpacing: 0.7 },
+  mapSelectedMain: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  mapSelectedArtwork: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 12 },
   mapSelectedCopy: { flex: 1 },
   nearbyLine: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   nearbyLineText: { color: '#6F927A', fontSize: 6, fontWeight: '800', letterSpacing: 0.35 },
-  mapSelectedTitle: { marginTop: 5, color: ink, fontSize: 10, fontWeight: '800' },
-  mapSelectedAddress: { marginTop: 3, color: '#958E88', fontSize: 7 },
+  mapSelectedTitle: { color: '#202124', fontSize: 14, fontWeight: '700' },
+  mapSelectedAddress: { marginTop: 4, color: '#5F6368', fontSize: 10 },
   mapSelectedAction: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 7, paddingHorizontal: 7, paddingVertical: 5, borderRadius: 5, backgroundColor: accent },
-  mapSelectedActionText: { color: '#fff', fontSize: 7, fontWeight: '700' },
+  mapSelectedActionText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  routeDetails: { overflow: 'hidden', borderTopWidth: 1, borderTopColor: '#EDEFEA', paddingTop: 8 },
+  routeSummary: { marginBottom: 6, color: '#4C7962', fontSize: 10, fontWeight: '800' },
+  routeSteps: { maxHeight: 120 },
+  routeStep: { minHeight: 29, flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 4 },
+  routeStepNumber: { width: 19, height: 19, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#EDF3EE' },
+  routeStepNumberText: { color: '#4C7962', fontSize: 8, fontWeight: '800' },
+  routeStepText: { flex: 1, color: '#514B46', fontSize: 9, lineHeight: 13 },
+  routeStepDistance: { color: '#97908A', fontSize: 8 },
+  routeErrorText: { marginTop: 7, color: '#A43D2A', fontSize: 9, lineHeight: 14 },
   mapThumbs: { gap: 6, paddingVertical: 8 },
   mapThumb: { height: 27, justifyContent: 'center', paddingHorizontal: 9, borderWidth: 1, borderColor: '#ECE8E4', borderRadius: 14, backgroundColor: '#fff' },
   mapThumbSelected: { borderColor: ink, backgroundColor: ink },
@@ -1355,31 +2080,6 @@ const styles = StyleSheet.create({
   profileRowSub: { marginTop: 3, color: '#A09A94', fontSize: 7 },
   profileFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 18 },
   profileFootText: { color: '#AAA39D', fontSize: 7 },
-  scannerScreen: { flex: 1, backgroundColor: '#191817' },
-  scannerBackdrop: { flex: 1, position: 'relative', justifyContent: 'space-between', overflow: 'hidden', paddingHorizontal: 19, paddingBottom: 14 },
-  scannerHeader: { zIndex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 7 },
-  scannerBack: { width: 37, height: 37, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ffffff45', borderRadius: 12, backgroundColor: '#0004' },
-  scannerHeaderTitle: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  scannerCenter: { zIndex: 2, alignItems: 'center', marginTop: -24 },
-  scannerTitle: { color: '#fff', fontSize: 20, fontWeight: '800', lineHeight: 25, textAlign: 'center' },
-  scannerSub: { maxWidth: 245, marginTop: 7, color: '#ffffffb8', fontSize: 9, lineHeight: 15, textAlign: 'center' },
-  scanFrame: { position: 'relative', width: 230, height: 230, marginTop: 25 },
-  scanCorner: { position: 'absolute', width: 32, height: 32, borderColor: '#fff', borderWidth: 3 },
-  scanCornerTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 8 },
-  scanCornerTR: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 8 },
-  scanCornerBL: { bottom: 0, left: 0, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 8 },
-  scanCornerBR: { right: 0, bottom: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 8 },
-  scanBeam: { position: 'absolute', top: '49%', left: 9, width: '92%', height: 2, backgroundColor: '#F55B3B', shadowColor: accent, shadowOpacity: 1, shadowRadius: 8 },
-  cameraReady: { marginTop: 13, color: '#ffffffd1', fontSize: 9 },
-  permissionButton: { height: 39, flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 13, paddingHorizontal: 13, borderRadius: 8, backgroundColor: accent },
-  permissionButtonText: { color: '#fff', fontSize: 9, fontWeight: '700' },
-  scannerBottom: { zIndex: 2, gap: 10 },
-  scannerHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 2 },
-  scannerHintText: { color: '#ffffffbf', fontSize: 8 },
-  manualSelect: { height: 43, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: '#ffffff75', borderRadius: 9, backgroundColor: '#ffffff12' },
-  manualSelectText: { color: '#fff', fontSize: 9, fontWeight: '700' },
-  scannerBackdropArt: { position: 'absolute', right: '22%', bottom: '31%', width: 160, height: 130, opacity: 0.6 },
-  scannerLoading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   bottomTabs: { height: 59, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 9, borderTopWidth: 1, borderTopColor: '#F0ECE8', backgroundColor: '#fff' },
   tabButton: { position: 'relative', minWidth: 61, alignItems: 'center', justifyContent: 'center', gap: 1 },
   tabIconWrap: { width: 30, height: 27, alignItems: 'center', justifyContent: 'center', borderRadius: 9 },
@@ -1416,7 +2116,7 @@ const styles = StyleSheet.create({
   tourRoute: { color: '#D4CDC7', fontSize: 10, fontWeight: '600', lineHeight: 16 },
 
   globalMiniPlayer: { position: 'absolute', bottom: 70, left: 16, right: 16, height: 56, backgroundColor: '#1A1816', borderRadius: 14, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
-  miniPlayerProgress: { position: 'absolute', top: 0, left: 0, height: 2, width: '45%', backgroundColor: accent, zIndex: 10 },
+  miniPlayerProgress: { position: 'absolute', top: 0, left: 0, height: 2, backgroundColor: accent, zIndex: 10 },
   miniPlayerContent: { flex: 1, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 10 },
   miniPlayerIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: '#ffffff20', alignItems: 'center', justifyContent: 'center' },
   miniPlayerInfo: { flex: 1, justifyContent: 'center' },
@@ -1426,8 +2126,44 @@ const styles = StyleSheet.create({
 });
 
 // Hàm tính khoảng cách đường chim bay (Haversine Formula) - Trả về đơn vị Mét
+function describeRouteManeuver(maneuver, roadName) {
+  const { type, modifier } = maneuver || {};
+  const directions = {
+    'sharp left': 'Rẽ gấp trái',
+    left: 'Rẽ trái',
+    'slight left': 'Chếch trái',
+    straight: 'Đi thẳng',
+    'slight right': 'Chếch phải',
+    right: 'Rẽ phải',
+    'sharp right': 'Rẽ gấp phải',
+    'uturn': 'Quay đầu',
+  };
+  let instruction;
+  if (type === 'arrive') instruction = 'Đã đến điểm tham quan';
+  else if (type === 'depart') instruction = 'Bắt đầu đi';
+  else if (type === 'roundabout' || type === 'rotary') instruction = 'Đi vào vòng xoay';
+  else if (type === 'merge') instruction = 'Nhập vào đường';
+  else if (type === 'continue' || type === 'new name') instruction = 'Tiếp tục đi';
+  else instruction = directions[modifier] || 'Tiếp tục đi';
+  return roadName ? `${instruction} vào ${roadName}` : instruction;
+}
+
+function formatRouteDistance(meters) {
+  if (!Number.isFinite(meters) || meters <= 0) return '';
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+}
+
+function formatRouteDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return 'dưới 1 phút';
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} phút`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours} giờ ${remainingMinutes} phút` : `${hours} giờ`;
+}
+
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  if (!lat1 || !lon1 || !lat2 || !lon2) return 99999;
+  if (![lat1, lon1, lat2, lon2].every((value) => Number.isFinite(value))) return 99999;
   const R = 6371e3; // Bán kính trái đất (mét)
   const rad = Math.PI / 180;
   const dLat = (lat2 - lat1) * rad;
@@ -1439,3 +2175,12 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c; 
 }
 
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLocaleLowerCase('vi')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/\s+/g, ' ')
+    .trim();
+}

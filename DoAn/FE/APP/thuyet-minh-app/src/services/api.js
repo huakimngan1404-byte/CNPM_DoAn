@@ -1,66 +1,107 @@
+import { Platform } from 'react-native';
 import { sites as fallbackSites } from '../data/heritage';
 
-// Địa chỉ IPv4 Backend của bạn
-export const apiBaseUrl = 'http://192.168.2.9:8002/api/sites';
+const defaultApiOrigin = Platform.OS === 'android'
+    ? 'http://10.0.2.2:8000'
+    : 'http://localhost:8000';
+const withProtocol = (value) => (
+    /^https?:\/\//i.test(value) ? value : `${Platform.OS === 'web' ? 'https' : 'http'}://${value}`
+);
+const configuredApiOrigin = withProtocol(
+    process.env.EXPO_PUBLIC_API_URL || defaultApiOrigin
+);
+const normalizedApiOrigin = configuredApiOrigin.replace(/\/+$/, '');
+const translationUrl = new URL(
+    withProtocol(
+        process.env.EXPO_PUBLIC_TRANSLATION_URL || new URL(normalizedApiOrigin).origin
+    )
+);
+if (!process.env.EXPO_PUBLIC_TRANSLATION_URL) translationUrl.port = '8001';
+const translationBaseUrl = translationUrl.origin;
 
-// 1. Hàm lấy danh sách di tích (Có bọc lỗi dự phòng)
+export const apiBaseUrl = normalizedApiOrigin.endsWith('/api/sites')
+    ? normalizedApiOrigin
+    : `${normalizedApiOrigin}/api/sites`;
+
+const parseResponse = async (response) => {
+    if (!response.ok) {
+        throw new Error(`Backend trả về lỗi HTTP ${response.status}.`);
+    }
+    return response.json();
+};
+
 export const fetchSites = async () => {
-    try {
-        const response = await fetch(apiBaseUrl);
-        const data = await response.json();
-        return adaptSiteRecords(data);
-    } catch (error) {
-        console.log("Lỗi lấy danh sách di tích từ BE, đang dùng dữ liệu dự phòng.");
-        return fallbackSites; // Trả về data mẫu nếu BE lỗi
-    }
+    const response = await fetch(apiBaseUrl);
+    const records = await parseResponse(response);
+    return adaptSiteRecords(records);
 };
 
-// 2. Hàm gửi tọa độ GPS lên Backend
 export const fetchNearbySites = async (lat, lng, lang = 'vi') => {
-    try {
-        const payload = {
-            user_id: "mobile_user_01",
-            lat: lat,
-            lng: lng,
-            lang: lang
-        };
-        
-        console.log("Đang gửi tọa độ lên BE:", payload);
-
-        const response = await fetch(`${apiBaseUrl}/sync-location`, {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
-        
-        const data = await response.json();
-        console.log("BE trả lời:", data);
-        return data;
-
-    } catch (error) {
-        console.error("Lỗi không kết nối được BE:", error);
-        return null;
-    }
+    const response = await fetch(`${apiBaseUrl}/sync-location`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+            user_id: 'mobile_user_01',
+            lat,
+            lng,
+            lang,
+        }),
+    });
+    return parseResponse(response);
 };
 
-// 3. Hàm xử lý dữ liệu thông minh
+export const fetchSiteAudio = async (siteCode, lang = 'vi') => {
+    const response = await fetch(
+        `${translationBaseUrl}/api/audio/${encodeURIComponent(siteCode)}?lang=${encodeURIComponent(lang)}`
+    );
+    const translation = await parseResponse(response);
+    if (!translation.audio_url) {
+        throw new Error('Máy chủ chưa trả về đường dẫn audio cho di tích này.');
+    }
+
+    const audioPath = new URL(translation.audio_url, `${translationBaseUrl}/`).pathname;
+    return {
+        ...translation,
+        audioUrl: `${translationBaseUrl}${audioPath}`,
+    };
+};
+
 export const adaptSiteRecords = (records) => {
     let data = records;
     if (records && Array.isArray(records.data)) data = records.data;
     if (records && Array.isArray(records.sites)) data = records.sites;
-    if (!Array.isArray(data)) data = fallbackSites; // fallbackSites đã được import từ bài trước
+    if (!Array.isArray(data)) data = fallbackSites;
 
-    // Duyệt qua danh sách và gắn IP thật vào file audio/hình ảnh
-    return data.map(site => ({
-        ...site,
-        audioUrl: site.audioUrl?.startsWith('/') 
-            ? `http://192.168.2.9:8002${site.audioUrl}` 
-            : site.audioUrl,
-        image: site.image?.startsWith('/') 
-            ? `http://192.168.2.9:8002${site.image}` 
-            : site.image
-    }));
+    return data.map((site) => {
+        const coordinates = site.location?.coordinates;
+        const latitudeValue = site.latitude ?? site.lat ?? coordinates?.[1];
+        const longitudeValue = site.longitude ?? site.lng ?? coordinates?.[0];
+        const parsedLatitude = latitudeValue == null ? null : Number(latitudeValue);
+        const parsedLongitude = longitudeValue == null ? null : Number(longitudeValue);
+        const latitude = Number.isFinite(parsedLatitude) && parsedLatitude >= -90 && parsedLatitude <= 90
+            ? parsedLatitude
+            : null;
+        const longitude = Number.isFinite(parsedLongitude) && parsedLongitude >= -180 && parsedLongitude <= 180
+            ? parsedLongitude
+            : null;
+        const audioUrl = site.audioUrl || site.audio_url;
+        const image = site.image || site.image_url;
+        const audioPath = audioUrl ? new URL(audioUrl, `${translationBaseUrl}/`).pathname : null;
+
+        return {
+            ...site,
+            id: String(site.id ?? site._id ?? site.code ?? site.name),
+            latitude,
+            longitude,
+            radius: site.radius ?? site.geofence_radius ?? 50,
+            story: site.story || site.description,
+            audioUrl: audioPath ? `${translationBaseUrl}${audioPath}` : audioUrl,
+            image: image?.startsWith('/')
+                ? `${normalizedApiOrigin}${image}`
+                : image,
+        };
+    });
 };

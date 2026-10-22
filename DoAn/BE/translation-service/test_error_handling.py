@@ -8,7 +8,8 @@ import asyncio
 import logging
 from unittest.mock import patch, MagicMock, AsyncMock, call
 from business.audio_service import TTSService
-from presentation.audio_router import get_site_translation
+from business.site_translation_service import SiteTranslationService
+from presentation.audio_router import get_audio_file, get_site_translation
 from deep_translator.exceptions import (
     ServerException,
     RequestError,
@@ -21,6 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 class TestDatabaseBackedSiteTranslation:
+    @staticmethod
+    def create_audio_file(tmp_path, filename):
+        audio_path = tmp_path / filename
+        audio_path.write_bytes(b"test audio")
+        return str(audio_path)
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("lang", ["fr", "de"])
     @patch("presentation.audio_router.tts_service.generate_audio", new_callable=AsyncMock)
@@ -30,10 +37,11 @@ class TestDatabaseBackedSiteTranslation:
         mock_translate,
         mock_generate_audio,
         lang,
+        tmp_path,
     ):
         mock_translate.return_value = f"Translated to {lang}"
         mock_generate_audio.return_value = (
-            f"static/audio/{lang}_audio-key.mp3",
+            self.create_audio_file(tmp_path, f"{lang}_audio-key.mp3"),
             False,
             "audio-key",
         )
@@ -44,11 +52,15 @@ class TestDatabaseBackedSiteTranslation:
         translations = MagicMock()
         translations.find_one = AsyncMock(return_value=None)
         translations.update_one = AsyncMock()
+        audio_assets = MagicMock()
+        audio_assets.find_one = AsyncMock(return_value=None)
+        audio_assets.update_one = AsyncMock()
 
         with patch("presentation.audio_router.main.db") as mock_db:
             mock_db.__getitem__.side_effect = {
                 "sites": sites,
                 "translations": translations,
+                "audio_assets": audio_assets,
             }.__getitem__
             result = await get_site_translation("site-1", lang)
 
@@ -60,6 +72,8 @@ class TestDatabaseBackedSiteTranslation:
         )
         assert result["lang"] == lang
         assert result["description"] == f"Translated to {lang}"
+        assert result["audio_url"].startswith("http://localhost:8001/api/audio/files/")
+        audio_assets.update_one.assert_awaited_once()
 
     @pytest.mark.asyncio
     @patch("presentation.audio_router.tts_service.generate_audio", new_callable=AsyncMock)
@@ -68,20 +82,34 @@ class TestDatabaseBackedSiteTranslation:
         self,
         mock_translate,
         mock_generate_audio,
+        tmp_path,
     ):
         mock_translate.return_value = "A translated description"
-        mock_generate_audio.return_value = ("static/audio/en_audio-key.mp3", False, "audio-key")
-        collection = MagicMock()
-        collection.find_one = AsyncMock(
+        mock_generate_audio.return_value = (
+            self.create_audio_file(tmp_path, "en_audio-key.mp3"),
+            False,
+            "audio-key",
+        )
+        sites = MagicMock()
+        sites.find_one = AsyncMock(
             return_value={"code": "site-1", "description": "Mô tả tiếng Việt"}
         )
-        collection.update_one = AsyncMock()
+        translations = MagicMock()
+        translations.find_one = AsyncMock(return_value=None)
+        translations.update_one = AsyncMock()
+        audio_assets = MagicMock()
+        audio_assets.find_one = AsyncMock(return_value=None)
+        audio_assets.update_one = AsyncMock()
 
         with patch("presentation.audio_router.main.db") as mock_db:
-            mock_db.__getitem__.return_value = collection
+            mock_db.__getitem__.side_effect = {
+                "sites": sites,
+                "translations": translations,
+                "audio_assets": audio_assets,
+            }.__getitem__
             result = await get_site_translation("site-1", "en")
 
-        collection.find_one.assert_awaited_once_with(
+        sites.find_one.assert_awaited_once_with(
             {"code": "site-1"},
             {"_id": 0, "code": 1, "description": 1},
         )
@@ -92,13 +120,19 @@ class TestDatabaseBackedSiteTranslation:
             do_translate=False,
         )
         assert result["description"] == "A translated description"
-        assert result["audio_url"].endswith("/static/audio/en_audio-key.mp3")
+        assert result["audio_url"].startswith("http://localhost:8001/api/audio/files/")
         assert result["audio_cache"] == "MISS"
-        collection.update_one.assert_awaited_once()
-        update_filter, update_document = collection.update_one.call_args.args[:2]
+        assert translations.update_one.await_count == 2
+        update_filter, update_document = translations.update_one.await_args_list[-1].args[:2]
         assert update_filter == {"site_code": "site-1", "lang": "en"}
         assert update_document["$set"]["description"] == "A translated description"
         assert update_document["$set"]["source_text"] == "Mô tả tiếng Việt"
+        assert update_document["$set"]["audio_asset_id"] in result["audio_url"]
+        first_update = translations.update_one.await_args_list[0].args[1]["$set"]
+        assert first_update["description"] == "A translated description"
+        assert first_update["audio_asset_id"] is None
+        assert first_update["audio_url"] is None
+        audio_assets.update_one.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_returns_not_found_when_site_is_missing(self):
@@ -129,15 +163,156 @@ class TestDatabaseBackedSiteTranslation:
         assert exc_info.value.status_code == 422
 
     @pytest.mark.asyncio
+    async def test_cached_translation_and_audio_do_not_call_translation_or_tts(self):
+        repository = MagicMock()
+        repository.get_site = AsyncMock(
+            return_value={"code": "site-1", "description": "Unchanged source"}
+        )
+        repository.get_translation = AsyncMock(
+            return_value={
+                "_id": "translation-id",
+                "description": "Cached translation",
+                "audio_asset_id": "en_cached-audio",
+                "audio_url": "http://localhost:8001/api/audio/files/en_cached-audio",
+            }
+        )
+        repository.get_audio_asset = AsyncMock(
+            return_value={"_id": "en_cached-audio"}
+        )
+        repository.save_audio_asset = AsyncMock()
+        repository.save_translation = AsyncMock()
+        translator = AsyncMock()
+        tts = MagicMock()
+        tts.get_audio_cache_key.return_value = "en_cached-audio"
+        tts.generate_audio = AsyncMock()
+        service = SiteTranslationService(
+            repository,
+            tts,
+            "http://localhost:8001",
+            translator,
+        )
+
+        result = await service.get_translation("site-1", "en")
+
+        assert result["translation_cache"] == "HIT"
+        assert result["audio_cache"] == "HIT"
+        translator.assert_not_awaited()
+        tts.generate_audio.assert_not_awaited()
+        repository.save_audio_asset.assert_not_awaited()
+        repository.save_translation.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_persists_translation_before_audio_generation_and_reuses_it_after_tts_failure(
+        self,
+        tmp_path,
+    ):
+        audio_path = self.create_audio_file(tmp_path, "en_cached-audio.mp3")
+        repository = MagicMock()
+        repository.get_site = AsyncMock(
+            return_value={"code": "site-1", "description": "Unchanged source"}
+        )
+        repository.get_translation = AsyncMock(side_effect=[
+            None,
+            {
+                "_id": "translation-id",
+                "description": "Translated description",
+                "audio_asset_id": None,
+                "audio_url": None,
+            },
+        ])
+        repository.get_audio_asset = AsyncMock(return_value=None)
+        repository.save_translation = AsyncMock()
+        repository.save_audio_asset = AsyncMock()
+        repository.update_translation_audio = AsyncMock()
+        translator = AsyncMock(return_value="Translated description")
+        tts = MagicMock()
+        tts.get_audio_cache_key.return_value = "en_cached-audio"
+        tts.generate_audio = AsyncMock(side_effect=[
+            RuntimeError("TTS service unavailable"),
+            (audio_path, False, "en_cached-audio"),
+        ])
+        service = SiteTranslationService(
+            repository,
+            tts,
+            "http://localhost:8001",
+            translator,
+        )
+
+        from business.site_translation_service import SiteTranslationError
+
+        with pytest.raises(SiteTranslationError, match="Audio generation failed"):
+            await service.get_translation("site-1", "en")
+
+        first_save = repository.save_translation.await_args.args
+        assert first_save[3] == "Translated description"
+        assert first_save[4:6] == (None, None)
+
+        result = await service.get_translation("site-1", "en")
+
+        assert result["translation_cache"] == "HIT"
+        assert result["description"] == "Translated description"
+        translator.assert_awaited_once_with("Unchanged source", "en")
+        assert tts.generate_audio.await_count == 2
+        repository.save_translation.assert_awaited_once()
+        repository.update_translation_audio.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "headers", "expected_status", "expected_data"),
+        [
+            ("HEAD", [], 200, b""),
+            ("GET", [(b"range", b"bytes=1-3")], 206, b"bcd"),
+        ],
+    )
+    async def test_audio_asset_supports_head_and_byte_range(
+        self,
+        method,
+        headers,
+        expected_status,
+        expected_data,
+    ):
+        from starlette.requests import Request
+
+        request = Request({
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": method,
+            "scheme": "http",
+            "path": "/api/audio/files/vi_test",
+            "raw_path": b"/api/audio/files/vi_test",
+            "query_string": b"",
+            "headers": headers,
+            "client": ("testclient", 80),
+            "server": ("testserver", 80),
+        })
+        with patch("presentation.audio_router.main.db") as mock_db:
+            with patch(
+                "presentation.audio_router.AudioRepository.read_audio_asset",
+                new_callable=AsyncMock,
+                return_value={"data": b"abcdef", "content_type": "audio/mpeg"},
+            ):
+                response = await get_audio_file("vi_test", request)
+
+        assert response.status_code == expected_status
+        assert response.body == expected_data
+        assert response.headers["accept-ranges"] == "bytes"
+
+    @pytest.mark.asyncio
     @patch("presentation.audio_router.tts_service.generate_audio", new_callable=AsyncMock)
     @patch("presentation.audio_router.translate_with_timeout", new_callable=AsyncMock)
     async def test_changed_source_text_is_translated_and_replaces_saved_translation(
         self,
         mock_translate,
         mock_generate_audio,
+        tmp_path,
     ):
         mock_translate.return_value = "Updated English description"
-        mock_generate_audio.return_value = ("static/audio/en_audio-key.mp3", False, "audio-key")
+        mock_generate_audio.return_value = (
+            self.create_audio_file(tmp_path, "en_audio-key.mp3"),
+            False,
+            "audio-key",
+        )
         sites = MagicMock()
         sites.find_one = AsyncMock(
             return_value={"code": "site-1", "description": "Updated Vietnamese description"}
@@ -145,11 +320,15 @@ class TestDatabaseBackedSiteTranslation:
         translations = MagicMock()
         translations.find_one = AsyncMock(return_value=None)
         translations.update_one = AsyncMock()
+        audio_assets = MagicMock()
+        audio_assets.find_one = AsyncMock(return_value=None)
+        audio_assets.update_one = AsyncMock()
 
         with patch("presentation.audio_router.main.db") as mock_db:
             mock_db.__getitem__.side_effect = {
                 "sites": sites,
                 "translations": translations,
+                "audio_assets": audio_assets,
             }.__getitem__
             result = await get_site_translation("site-1", "en")
 
@@ -162,8 +341,8 @@ class TestDatabaseBackedSiteTranslation:
             "Updated Vietnamese description",
             "en",
         )
-        translations.update_one.assert_awaited_once()
-        update_filter, update_document = translations.update_one.call_args.args[:2]
+        assert translations.update_one.await_count == 2
+        update_filter, update_document = translations.update_one.await_args_list[-1].args[:2]
         assert update_filter == {"site_code": "site-1", "lang": "en"}
         assert update_document["$set"]["source_text"] == "Updated Vietnamese description"
         assert update_document["$set"]["description"] == "Updated English description"
@@ -486,6 +665,39 @@ class TestCaching:
         
         # Translator should be called twice (cache was cleared)
         assert mock_translator.translate.call_count == 2
+
+
+class TestAudioFileCache:
+    @pytest.mark.asyncio
+    async def test_empty_cached_audio_is_regenerated_atomically(self, tmp_path):
+        service = TTSService(cache_dir=str(tmp_path))
+        text = "Bến Nhà Rồng là di tích lịch sử."
+        file_hash = service._get_hash(text, "vi")
+        cached_file = tmp_path / f"vi_{file_hash}.mp3"
+        cached_file.write_bytes(b"")
+        communicate = MagicMock()
+
+        async def save_audio(path):
+            with open(path, "wb") as audio_file:
+                audio_file.write(b"ID3playable-audio")
+
+        communicate.save = AsyncMock(side_effect=save_audio)
+
+        with patch(
+            "business.audio_service.edge_tts.Communicate",
+            return_value=communicate,
+        ):
+            filepath, cache_hit, returned_hash = await service.generate_audio(
+                text,
+                "vi",
+                do_translate=False,
+            )
+
+        assert not cache_hit
+        assert returned_hash == file_hash
+        assert filepath == str(cached_file)
+        assert cached_file.read_bytes() == b"ID3playable-audio"
+        assert not list(tmp_path.glob("*.tmp"))
 
 
 class TestConfigurationLoading:

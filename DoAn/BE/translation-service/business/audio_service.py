@@ -6,6 +6,7 @@ import json
 import logging
 import time
 import functools
+import tempfile
 from typing import Optional, Dict, Tuple
 import aiohttp
 import edge_tts
@@ -72,6 +73,9 @@ class TTSService:
     def _get_hash(self, text: str, target_lang: str) -> str:
         raw = f"{target_lang.lower().strip()}:{text.strip()}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+    def get_audio_cache_key(self, text: str, target_lang: str) -> str:
+        return f"{target_lang.lower().strip()}_{self._get_hash(text, target_lang)}"
 
     def _translate_cached_impl(
         self,
@@ -157,12 +161,28 @@ class TTSService:
         file_hash = self._get_hash(translated_text, target_lang)
         filename = f"{target_lang}_{file_hash}.mp3"
         filepath = os.path.join(self.cache_dir, filename)
-        is_hit = os.path.exists(filepath)
+        is_hit = os.path.isfile(filepath) and os.path.getsize(filepath) > 0
 
         if not is_hit:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            os.makedirs(self.cache_dir, exist_ok=True)
             voice = VOICE_MAPPING.get(target_lang.lower(), "en-US-AriaNeural")
             communicate = edge_tts.Communicate(translated_text, voice)
-            await communicate.save(filepath)
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=self.cache_dir,
+                prefix=f".{filename}.",
+                suffix=".tmp",
+            )
+            os.close(temp_fd)
+            try:
+                await communicate.save(temp_path)
+                if os.path.getsize(temp_path) == 0:
+                    raise RuntimeError("Text-to-speech returned an empty audio file.")
+                os.replace(temp_path, filepath)
+            finally:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
 
         return filepath, is_hit, file_hash
 

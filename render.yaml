@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: quan1-site-service
+    runtime: docker
+    plan: free
+    rootDir: BE/site-service
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DATABASE
+        value: district1_historical_db
+
+  - type: web
+    name: quan1-translation-service
+    runtime: docker
+    plan: free
+    rootDir: BE/translation-service
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DATABASE
+        value: district1_historical_db
+
+  - type: web
+    name: quan1-web
+    runtime: static
+    rootDir: FE/APP/thuyet-minh-app
+    buildCommand: npm ci && npx expo export --platform web
+    staticPublishPath: dist
+    envVars:
+      - key: EXPO_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: quan1-site-service
+          property: host
+      - key: EXPO_PUBLIC_TRANSLATION_URL
+        fromService:
+          type: web
+          name: quan1-translation-service
+          property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

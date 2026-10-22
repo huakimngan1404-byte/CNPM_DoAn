@@ -11,13 +11,12 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Ứng dụng dùng camera để quét mã QR tại di tích.",
         "NSLocationWhenInUseUsageDescription": "Ứng dụng dùng vị trí để tìm di tích lịch sử gần bạn."
       }
     },
     "android": {
+      "usesCleartextTraffic": true,
       "permissions": [
-        "CAMERA",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
       ],
@@ -29,12 +28,6 @@
       "bundler": "metro"
     },
     "plugins": [
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Cho phép Di Tích Q1 sử dụng camera để quét mã QR tại di tích."
-        }
-      ],
       [
         "expo-location",
         {

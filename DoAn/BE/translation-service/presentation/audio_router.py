@@ -2,6 +2,7 @@ import os
 import hashlib
 import asyncio
 import logging
+import re
 import sys
 import types
 from fastapi import APIRouter, Request, Response, HTTPException
@@ -99,6 +100,67 @@ async def post_tts(text: str, lang: str = "vi", response: Response = None):
 @router.get("/pack-manifest")
 async def get_pack_manifest(lang: str):
     return tts_service.get_pack_manifest(lang)
+
+@router.api_route("/files/{asset_id}", methods=["GET", "HEAD"])
+async def get_audio_file(asset_id: str, request: Request):
+    config = _get_main_config()
+    db = getattr(config, "db", None)
+    if db is None:
+        raise HTTPException(status_code=500, detail="MongoDB is not configured")
+
+    audio_asset = await AudioRepository(db).read_audio_asset(asset_id)
+    if not audio_asset:
+        raise HTTPException(status_code=404, detail="Audio file was not found")
+    audio_data = audio_asset.get("data")
+    if not isinstance(audio_data, bytes) or not audio_data:
+        raise HTTPException(status_code=404, detail="Audio file is empty")
+
+    content_type = audio_asset.get("content_type", "audio/mpeg")
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Content-Length": str(len(audio_data)),
+    }
+    if request.method == "HEAD":
+        return Response(media_type=content_type, headers=headers)
+
+    byte_range = request.headers.get("range")
+    if byte_range:
+        match = re.fullmatch(r"bytes=(\d*)-(\d*)", byte_range.strip())
+        if not match:
+            raise HTTPException(
+                status_code=416,
+                detail="Requested audio byte range is invalid",
+                headers={"Content-Range": f"bytes */{len(audio_data)}"},
+            )
+
+        range_start, range_end = match.groups()
+        if range_start:
+            start = int(range_start)
+            end = int(range_end) if range_end else len(audio_data) - 1
+        else:
+            suffix_length = int(range_end or 0)
+            start = max(0, len(audio_data) - suffix_length)
+            end = len(audio_data) - 1
+        if start >= len(audio_data) or end < start:
+            raise HTTPException(
+                status_code=416,
+                detail="Requested audio byte range is not satisfiable",
+                headers={"Content-Range": f"bytes */{len(audio_data)}"},
+            )
+
+        end = min(end, len(audio_data) - 1)
+        audio_data = audio_data[start:end + 1]
+        headers["Content-Range"] = f"bytes {start}-{end}/{len(audio_asset['data'])}"
+        headers["Content-Length"] = str(len(audio_data))
+        return Response(
+            content=audio_data,
+            status_code=206,
+            media_type=content_type,
+            headers=headers,
+        )
+
+    return Response(content=audio_data, media_type=content_type, headers=headers)
 
 
 @router.get("/{site_code}")
