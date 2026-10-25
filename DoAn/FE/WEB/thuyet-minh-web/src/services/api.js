@@ -194,44 +194,6 @@ export async function deleteSite(code) {
   }, true);
 }
 
-export async function fetchActiveListeners() {
-  const response = await fetch(
-    `${apiBaseUrl}/api/sites/listeners/active`,
-    withAdminToken(),
-  );
-  await handleExpiredAdminSession(response);
-  if (!response.ok) {
-    throw new Error(`Không tải được số người đang truy cập (${response.status}).`);
-  }
-  return response.json();
-}
-
-export async function heartbeatListener(sessionId, siteCode) {
-  const response = await fetch(`${apiBaseUrl}/api/sites/listeners/heartbeat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, site_code: siteCode }),
-  });
-  if (!response.ok) {
-    throw new Error(`Không đăng ký được phiên nghe (${response.status}).`);
-  }
-  return response.json();
-}
-
-export async function leaveListener(sessionId, keepalive = false) {
-  const response = await fetch(
-    `${apiBaseUrl}/api/sites/listeners/leave?session_id=${encodeURIComponent(sessionId)}`,
-    {
-      method: 'POST',
-      keepalive,
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`Không kết thúc được phiên nghe (${response.status}).`);
-  }
-  return response.json();
-}
-
 export async function fetchSiteNarration(siteCode, lang = 'vi') {
   const response = await fetch(
     `${apiBaseUrl}/api/sites/${encodeURIComponent(siteCode)}/narration?lang=${encodeURIComponent(lang)}`,

@@ -1,6 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 MONGO_URL = (
     os.getenv("MONGO_URI")
@@ -129,39 +129,6 @@ class SiteRepository:
             upsert=True,
         )
 
-    async def heartbeat_listener(self, session_id: str, site_code: str | None):
-        now = datetime.utcnow()
-        await db.active_listeners.update_one(
-            {"_id": session_id},
-            {
-                "$set": {"site_code": site_code, "last_seen": now},
-                "$setOnInsert": {"created_at": now},
-            },
-            upsert=True,
-        )
-
-    async def leave_listener(self, session_id: str):
-        result = await db.active_listeners.delete_one({"_id": session_id})
-        return result.deleted_count > 0
-
-    async def get_active_listener_stats(self):
-        cutoff = datetime.utcnow() - timedelta(seconds=45)
-        await db.active_listeners.delete_many({"last_seen": {"$lt": cutoff}})
-        active_filter = {"last_seen": {"$gte": cutoff}}
-        active_count = await db.active_listeners.count_documents(active_filter)
-        by_site = await db.active_listeners.aggregate([
-            {"$match": {**active_filter, "site_code": {"$ne": None}}},
-            {"$group": {"_id": "$site_code", "count": {"$sum": 1}}},
-            {"$sort": {"_id": 1}},
-        ]).to_list(length=None)
-        return {
-            "active_count": active_count,
-            "by_site": [
-                {"site_code": item["_id"], "count": item["count"]}
-                for item in by_site
-            ],
-        }
-        
     async def seed_default_sites(self):
         for site in DEFAULT_SITES:
             await db.sites.update_one(

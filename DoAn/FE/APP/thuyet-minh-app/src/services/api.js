@@ -1,18 +1,22 @@
 import { Platform } from 'react-native';
 import { sites as fallbackSites } from '../data/heritage';
 
-const defaultApiOrigin = Platform.OS === 'android'
-    ? 'http://10.0.2.2:8000'
-    : 'http://localhost:8000';
-const withProtocol = (value) => (
-    /^https?:\/\//i.test(value) ? value : `${Platform.OS === 'web' ? 'https' : 'http'}://${value}`
+const defaultApiOrigin = Platform.OS === 'web' && typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : Platform.OS === 'android'
+        ? 'http://10.0.2.2:8000'
+        : 'http://localhost:8000';
+const addDefaultProtocol = (value) => (
+    /^https?:\/\//i.test(value)
+        ? value
+        : `${value.includes('localhost') || value.startsWith('10.') ? 'http' : 'https'}://${value}`
 );
-const configuredApiOrigin = withProtocol(
+const configuredApiOrigin = addDefaultProtocol(
     process.env.EXPO_PUBLIC_API_URL || defaultApiOrigin
 );
 const normalizedApiOrigin = configuredApiOrigin.replace(/\/+$/, '');
 const translationUrl = new URL(
-    withProtocol(
+    addDefaultProtocol(
         process.env.EXPO_PUBLIC_TRANSLATION_URL || new URL(normalizedApiOrigin).origin
     )
 );
@@ -96,7 +100,7 @@ export const adaptSiteRecords = (records) => {
             id: String(site.id ?? site._id ?? site.code ?? site.name),
             latitude,
             longitude,
-            radius: site.radius ?? site.geofence_radius ?? 50,
+            radius: site.radius ?? site.geofence_radius ?? 100,
             story: site.story || site.description,
             audioUrl: audioPath ? `${translationBaseUrl}${audioPath}` : audioUrl,
             image: image?.startsWith('/')

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from business.site_service import SiteService
 from presentation.auth_router import require_admin
@@ -31,10 +31,6 @@ class SiteAdminUpdate(BaseModel):
     category: str = Field(min_length=2, max_length=100)
     description: str = Field(min_length=10, max_length=20000)
     is_active: bool = True
-
-class ListenerHeartbeat(BaseModel):
-    session_id: str = Field(min_length=1, max_length=128)
-    site_code: str | None = None
 
 # --- CONTROLLERS ---
 
@@ -95,15 +91,3 @@ async def delete_site(code: str):
 async def init_data():
     """API dùng để nạp dữ liệu mẫu các điểm tham quan Quận 1"""
     return await service.initialize_default_site()
-
-@router.post("/listeners/heartbeat")
-async def heartbeat_listener(data: ListenerHeartbeat):
-    return await service.heartbeat_listener(data.session_id, data.site_code)
-
-@router.post("/listeners/leave")
-async def leave_listener(session_id: str = Query(..., min_length=1, max_length=128)):
-    return await service.leave_listener(session_id)
-
-@router.get("/listeners/active", dependencies=[Depends(require_admin)])
-async def get_active_listeners():
-    return await service.get_active_listener_stats()

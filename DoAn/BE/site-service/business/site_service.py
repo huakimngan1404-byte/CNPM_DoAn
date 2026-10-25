@@ -130,14 +130,3 @@ class SiteService:
         await self.repo.seed_default_sites()
         self.catalog_seeded = True
         return {"message": "Đã nạp dữ liệu các điểm tham quan Quận 1 thành công!"}
-
-    async def heartbeat_listener(self, session_id: str, site_code: str | None = None):
-        await self.repo.heartbeat_listener(session_id, site_code)
-        return {"status": "active"}
-
-    async def leave_listener(self, session_id: str):
-        removed = await self.repo.leave_listener(session_id)
-        return {"status": "left", "removed": removed}
-
-    async def get_active_listener_stats(self):
-        return await self.repo.get_active_listener_stats()

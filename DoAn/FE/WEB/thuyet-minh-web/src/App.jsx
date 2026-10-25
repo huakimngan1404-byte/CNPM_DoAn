@@ -10,14 +10,11 @@ import 'leaflet/dist/leaflet.css';
 import { initialSites } from './data.js';
 import SiteMap from './components/SiteMap.jsx';
 import {
-  fetchActiveListeners,
   createSite,
   deleteSite,
   fetchAdminSites,
   fetchRecentActivity,
   fetchSiteNarration,
-  heartbeatListener,
-  leaveListener,
   apiBaseUrl,
   loginAdmin,
   updateSite,
@@ -183,8 +180,6 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [backendStatus, setBackendStatus] = useState('loading');
-  const [listenerStats, setListenerStats] = useState(null);
-  const [listenerStatus, setListenerStatus] = useState('loading');
 
   useEffect(() => {
     let active = true;
@@ -199,31 +194,6 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
       });
     return () => { active = false; };
   }, []);
-
-  useEffect(() => {
-    if (activePage !== 'dashboard') return undefined;
-    let active = true;
-
-    const refreshListenerStats = async () => {
-      try {
-        const stats = await fetchActiveListeners();
-        if (!active) return;
-        setListenerStats(stats);
-        setListenerStatus('connected');
-      } catch {
-        if (!active) return;
-        setListenerStats(null);
-        setListenerStatus('offline');
-      }
-    };
-
-    refreshListenerStats();
-    const interval = window.setInterval(refreshListenerStats, 4000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, [activePage]);
 
   const filteredSites = useMemo(() => sites.filter((site) => {
     const matchesQuery = `${site.name} ${site.address} ${site.category}`.toLowerCase().includes(search.toLowerCase());
@@ -337,7 +307,7 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
             )}
           </div>
 
-          {activePage === 'dashboard' && <Dashboard sites={sites} onNavigate={setActivePage} listenerStats={listenerStats} listenerStatus={listenerStatus} />}
+          {activePage === 'dashboard' && <Dashboard sites={sites} onNavigate={setActivePage} />}
           {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} allSites={sites} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onDelete={removeSite} />}
           {activePage === 'narrations' && <NarrationsPage notify={notify} />}
           {activePage === 'languages' && <LanguagesPage sites={sites} />}
@@ -353,7 +323,7 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
   );
 }
 
-function Dashboard({ sites, onNavigate, listenerStats, listenerStatus }) {
+function Dashboard({ sites, onNavigate }) {
   const activeCount = sites.filter((site) => site.status === 'Đang hoạt động').length;
   const narrationCount = sites.length * supportedLanguages.length;
   const [recentActivity, setRecentActivity] = useState([]);
@@ -395,7 +365,6 @@ function Dashboard({ sites, onNavigate, listenerStats, listenerStatus }) {
       </section>
 
       <section className="stats-grid">
-        <StatCard label="Người đang truy cập" value={listenerStatus === 'connected' ? String(listenerStats?.active_count ?? 0) : '—'} change={listenerStatus === 'connected' ? 'TRỰC TIẾP' : 'CHƯA KẾT NỐI'} positive={listenerStatus === 'connected'} icon={Headphones} iconTone="blue" note="app di động và trình duyệt đang hoạt động" />
         <StatCard label="Điểm di tích" value={String(sites.length)} change={`${activeCount} đang hoạt động`} positive icon={MapPin} iconTone="orange" note="đồng bộ từ Backend" />
         <StatCard label="Bài thuyết minh" value={String(narrationCount)} change="có thể tạo audio" positive icon={AudioLines} iconTone="violet" note={`${sites.length} di tích × ${supportedLanguages.length} ngôn ngữ`} />
         <StatCard label="Ngôn ngữ hỗ trợ" value={String(supportedLanguages.length)} change="đồng bộ với Backend" positive icon={Globe2} iconTone="green" note="Việt · Anh · Nhật · Trung" />
@@ -494,19 +463,6 @@ function Dashboard({ sites, onNavigate, listenerStats, listenerStatus }) {
   );
 }
 
-function getListenerSessionId() {
-  const storedId = sessionStorage.getItem('ditichq1-listener-session');
-  if (storedId) return storedId;
-  const sessionId = globalThis.crypto?.randomUUID
-    ? globalThis.crypto.randomUUID()
-    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
-      const value = Math.floor(Math.random() * 16);
-      return (character === 'x' ? value : (value & 0x3) | 0x8).toString(16);
-    });
-  sessionStorage.setItem('ditichq1-listener-session', sessionId);
-  return sessionId;
-}
-
 function ListenerDemo({ siteCode, siteName }) {
   const narrationLanguages = [
     { code: 'vi', name: 'Tiếng Việt' },
@@ -514,9 +470,7 @@ function ListenerDemo({ siteCode, siteName }) {
     { code: 'ja', name: '日本語' },
     { code: 'zh-CN', name: '中文' },
   ];
-  const [sessionId] = useState(getListenerSessionId);
   const [selectedLanguage, setSelectedLanguage] = useState('vi');
-  const [connection, setConnection] = useState('connecting');
   const [narration, setNarration] = useState(null);
   const [narrationLoading, setNarrationLoading] = useState(true);
   const [narrationError, setNarrationError] = useState('');
@@ -525,33 +479,6 @@ function ListenerDemo({ siteCode, siteName }) {
   const selectedLanguageInfo = narrationLanguages.find(
     (language) => language.code === selectedLanguage,
   );
-
-  useEffect(() => {
-    let active = true;
-    const sendHeartbeat = async () => {
-      try {
-        await heartbeatListener(sessionId, siteCode);
-        if (active) setConnection('connected');
-      } catch {
-        if (active) setConnection('offline');
-      }
-    };
-    const leave = () => {
-      leaveListener(sessionId, true).catch((error) => {
-        console.error('Không thể kết thúc phiên truy cập demo:', error);
-      });
-    };
-
-    sendHeartbeat();
-    const interval = window.setInterval(sendHeartbeat, 10000);
-    window.addEventListener('pagehide', leave);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-      window.removeEventListener('pagehide', leave);
-      leave();
-    };
-  }, [sessionId, siteCode]);
 
   useEffect(() => {
     let active = true;
@@ -585,21 +512,14 @@ function ListenerDemo({ siteCode, siteName }) {
           <span><MapPin size={19} /></span>
           <strong>Di Tích <i>Q1</i></strong>
         </a>
-        <span className={`listener-live ${connection === 'connected' ? 'is-online' : ''}`}>
-          <i /> {connection === 'connected' ? 'Đã kết nối demo' : connection === 'offline' ? 'Chưa kết nối được Backend' : 'Đang kết nối…'}
-        </span>
+        <span className="listener-live">Thuyết minh di tích</span>
       </header>
       <section className="listener-card">
         <div className="listener-card-icon"><AudioLines size={26} /></div>
         <span className="listener-kicker">THUYẾT MINH DI TÍCH · QUẬN 1</span>
         <h1>{narration?.name || siteName}</h1>
         <p>Chào mừng bạn đến với trải nghiệm thuyết minh đa ngôn ngữ. Nhấn phát để bắt đầu nghe nội dung tại điểm tham quan.</p>
-        <div className="listener-session-state">
-          <span className={connection === 'connected' ? 'session-dot connected' : 'session-dot'} />
-          {connection === 'connected'
-            ? 'Thiết bị của bạn đang được tính trong dashboard.'
-            : 'Dashboard sẽ cập nhật khi kết nối với Backend thành công.'}
-        </div>
+        <div className="listener-session-state">Chọn ngôn ngữ và nhấn phát để nghe bài thuyết minh.</div>
         <label className="listener-language">
           <span>Ngôn ngữ thuyết minh</span>
           <select
@@ -639,7 +559,7 @@ function ListenerDemo({ siteCode, siteName }) {
           </div>
         )}
       </section>
-      <footer className="listener-footer">Phiên nghe sẽ tự kết thúc khi bạn rời khỏi trang.</footer>
+      <footer className="listener-footer">Bạn có thể nghe bài thuyết minh trực tiếp trên trang này.</footer>
     </main>
   );
 }
