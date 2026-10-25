@@ -33,15 +33,9 @@ services:
     staticPublishPath: dist
     envVars:
       - key: EXPO_PUBLIC_API_URL
-        fromService:
-          type: web
-          name: quan1-site-service-a1vt
-          property: host
+        value: https://quan1-site-service-a1vt.onrender.com
       - key: EXPO_PUBLIC_TRANSLATION_URL
-        fromService:
-          type: web
-          name: quan1-translation-service-d3xw
-          property: host
+        value: https://quan1-translation-service-d3xw.onrender.com
     routes:
       - type: rewrite
         source: /*
@@ -55,10 +49,7 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: quan1-site-service-a1vt
-          property: host
+        value: https://quan1-site-service-a1vt.onrender.com
     routes:
       - type: rewrite
         source: /*
