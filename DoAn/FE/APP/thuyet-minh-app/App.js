@@ -1,4 +1,4 @@
-import { Linking } from 'react-native';
+import { AppState, Linking } from 'react-native';
 import * as Location from 'expo-location';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -16,7 +16,10 @@ import {
   RotateCw, Search, Settings, Share2, SlidersHorizontal, Sparkles, X,
 } from 'lucide-react-native';
 import { languages, sites } from './src/data/heritage.js';
-import { apiBaseUrl, fetchNearbySites, fetchSiteAudio, fetchSites } from './src/services/api.js';
+import {
+  apiBaseUrl, fetchNearbySites, fetchSiteAudio, fetchSites,
+  heartbeatListener, leaveListener,
+} from './src/services/api.js';
 import MapCanvas from './src/components/MapCanvas';
 import { translateUiText } from './src/i18n.js';
 
@@ -51,7 +54,17 @@ const tabs = [
   { key: 'profile', label: 'Cá nhân', icon: Settings },
 ];
 
+function createVisitorSessionId() {
+  return globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+      const value = Math.floor(Math.random() * 16);
+      return (character === 'x' ? value : (value & 0x3) | 0x8).toString(16);
+    });
+}
+
 export default function App() {
+  const [visitorSessionId] = useState(createVisitorSessionId);
   const [activeTab, setActiveTab] = useState('home');
   const [screen, setScreen] = useState('main');
   const [selectedSite, setSelectedSite] = useState(sites[0]);
@@ -95,6 +108,48 @@ export default function App() {
     });
   }, [category, search, siteList]);
 
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      if (Platform.OS === 'web' && document.visibilityState === 'hidden') return;
+      if (Platform.OS !== 'web' && AppState.currentState && AppState.currentState !== 'active') return;
+      heartbeatListener(visitorSessionId).catch((error) => {
+        console.error('Không thể cập nhật phiên truy cập:', error);
+      });
+    };
+    const leave = () => {
+      leaveListener(visitorSessionId).catch((error) => {
+        console.error('Không thể kết thúc phiên truy cập:', error);
+      });
+    };
+    const appStateSubscription = Platform.OS !== 'web'
+      ? AppState.addEventListener('change', (state) => {
+        if (state === 'active') sendHeartbeat();
+        else leave();
+      })
+      : null;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') sendHeartbeat();
+      else leave();
+    };
+    const onPageHide = () => leave();
+    if (Platform.OS === 'web') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      window.addEventListener('pagehide', onPageHide);
+    }
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 15000);
+    return () => {
+      clearInterval(interval);
+      appStateSubscription?.remove();
+      if (Platform.OS === 'web') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('pagehide', onPageHide);
+      }
+      leave();
+    };
+  }, [visitorSessionId]);
+
 // Theo dõi GPS thật và tự phát audio khi vừa vào vùng 50 m của một di tích.
 useEffect(() => {
   let locationSubscription = null;
@@ -126,7 +181,7 @@ useEffect(() => {
             Number(site.latitude),
             Number(site.longitude)
           );
-          const radius = Number(site.radius ?? 50);
+          const radius = Number(site.radius ?? 100);
           const wasInside = currentInside.has(site.id);
           if (distance <= radius || (wasInside && distance <= radius + 15)) {
             nextInside.add(site.id);
@@ -1008,8 +1063,8 @@ function MapScreen({
         latitude: Number(selected.latitude),
         longitude: Number(selected.longitude),
       };
-      const radiusMeters = Number(selected.radius ?? 50);
-      const clipRouteAtGeofence = (coordinates) => {
+      const radiusMeters = Number(selected.radius ?? 100);
+      const findRouteApproachToSite = (coordinates) => {
         if (!coordinates || coordinates.length < 2) return null;
 
         const distanceToSite = ([longitude, latitude]) => calculateDistance(
@@ -1018,14 +1073,14 @@ function MapScreen({
           destination.latitude,
           destination.longitude
         );
-        const clippedCoordinates = [coordinates[0]];
         if (distanceToSite(coordinates[0]) <= radiusMeters) return null;
-        let distance = 0;
+        let routeDistance = 0;
+        let nearestApproach = null;
 
         for (let index = 1; index < coordinates.length; index += 1) {
           const previous = coordinates[index - 1];
           const current = coordinates[index];
-          const segmentDistance = calculateDistance(
+          const segmentLength = calculateDistance(
             previous[1],
             previous[0],
             current[1],
@@ -1033,11 +1088,42 @@ function MapScreen({
           );
           const previousDistance = distanceToSite(previous);
           const currentDistance = distanceToSite(current);
-          let entryFraction = null;
+          let lower = 0;
+          let upper = 1;
+          for (let iteration = 0; iteration < 20; iteration += 1) {
+            const first = (2 * lower + upper) / 3;
+            const second = (lower + 2 * upper) / 3;
+            const firstPoint = [
+              previous[0] + (current[0] - previous[0]) * first,
+              previous[1] + (current[1] - previous[1]) * first,
+            ];
+            const secondPoint = [
+              previous[0] + (current[0] - previous[0]) * second,
+              previous[1] + (current[1] - previous[1]) * second,
+            ];
+            if (distanceToSite(firstPoint) < distanceToSite(secondPoint)) upper = second;
+            else lower = first;
+          }
+          const closestFraction = (lower + upper) / 2;
+          const closestPoint = [
+            previous[0] + (current[0] - previous[0]) * closestFraction,
+            previous[1] + (current[1] - previous[1]) * closestFraction,
+          ];
+          const closestDistance = distanceToSite(closestPoint);
 
-          if (previousDistance > radiusMeters && currentDistance <= radiusMeters) {
+          if (!nearestApproach || closestDistance < nearestApproach.distanceToSite) {
+            const distanceAlongSegment = segmentLength * closestFraction;
+            nearestApproach = {
+              coordinates: [...coordinates.slice(0, index), closestPoint],
+              distance: routeDistance + distanceAlongSegment,
+              distanceToSite: closestDistance,
+              enteredGeofence: closestDistance <= radiusMeters,
+            };
+          }
+
+          if (previousDistance > radiusMeters && closestDistance <= radiusMeters) {
             let outside = 0;
-            let inside = 1;
+            let inside = closestFraction;
             for (let iteration = 0; iteration < 20; iteration += 1) {
               const fraction = (outside + inside) / 2;
               const point = [
@@ -1047,60 +1133,23 @@ function MapScreen({
               if (distanceToSite(point) > radiusMeters) outside = fraction;
               else inside = fraction;
             }
-            entryFraction = (outside + inside) / 2;
-          } else if (previousDistance > radiusMeters && currentDistance > radiusMeters) {
-            let lower = 0;
-            let upper = 1;
-            for (let iteration = 0; iteration < 20; iteration += 1) {
-              const first = (2 * lower + upper) / 3;
-              const second = (lower + 2 * upper) / 3;
-              const firstPoint = [
-                previous[0] + (current[0] - previous[0]) * first,
-                previous[1] + (current[1] - previous[1]) * first,
-              ];
-              const secondPoint = [
-                previous[0] + (current[0] - previous[0]) * second,
-                previous[1] + (current[1] - previous[1]) * second,
-              ];
-              if (distanceToSite(firstPoint) < distanceToSite(secondPoint)) upper = second;
-              else lower = first;
-            }
-            const closestFraction = (lower + upper) / 2;
-            const closestPoint = [
-              previous[0] + (current[0] - previous[0]) * closestFraction,
-              previous[1] + (current[1] - previous[1]) * closestFraction,
-            ];
-            if (distanceToSite(closestPoint) <= radiusMeters) {
-              let outside = 0;
-              let inside = closestFraction;
-              for (let iteration = 0; iteration < 20; iteration += 1) {
-                const fraction = (outside + inside) / 2;
-                const point = [
-                  previous[0] + (current[0] - previous[0]) * fraction,
-                  previous[1] + (current[1] - previous[1]) * fraction,
-                ];
-                if (distanceToSite(point) > radiusMeters) outside = fraction;
-                else inside = fraction;
-              }
-              entryFraction = (outside + inside) / 2;
-            }
-          }
-
-          if (entryFraction != null) {
+            const entryFraction = (outside + inside) / 2;
             const boundary = [
               previous[0] + (current[0] - previous[0]) * entryFraction,
               previous[1] + (current[1] - previous[1]) * entryFraction,
             ];
-            distance += calculateDistance(previous[1], previous[0], boundary[1], boundary[0]);
-            clippedCoordinates.push(boundary);
-            return { coordinates: clippedCoordinates, distance };
+            return {
+              coordinates: [...coordinates.slice(0, index), boundary],
+              distance: routeDistance + segmentLength * entryFraction,
+              distanceToSite: radiusMeters,
+              enteredGeofence: true,
+            };
           }
 
-          distance += segmentDistance;
-          clippedCoordinates.push(current);
+          routeDistance += segmentLength;
         }
 
-        return null;
+        return nearestApproach;
       };
       const takeLastRouteDistance = (coordinates, distanceToKeep) => {
         let remainingDistance = distanceToKeep;
@@ -1145,53 +1194,73 @@ function MapScreen({
       let route = simulationRouteCacheRef.current[routeCacheKey] || null;
       let successfulRouteRequests = 0;
       let lastRouteRequestError = null;
-      const routeSearchRadii = [95, 125, 155];
+      let rateLimited = false;
+      const routeSearchRadius = 150;
       const bearingSeed = selected.code || selected.id;
       const startBearing = bearingSeed.split('').reduce(
         (sum, character) => sum + character.charCodeAt(0), 0
       ) % 360;
       if (!route) {
-        for (const radiusMetersFromSite of routeSearchRadii) {
-          for (let index = 0; index < 8; index += 1) {
-            const bearing = (startBearing + index * 45) * (Math.PI / 180);
-            const origin = {
-              latitude: destination.latitude + (radiusMetersFromSite * Math.cos(bearing)) / 111320,
-              longitude: destination.longitude + (radiusMetersFromSite * Math.sin(bearing))
-                / (111320 * Math.cos(destination.latitude * (Math.PI / 180))),
-            };
-            let candidateRoute;
-            try {
-              candidateRoute = await requestWalkingRoute(origin);
-              successfulRouteRequests += 1;
-            } catch (error) {
-              lastRouteRequestError = error;
-              console.error('Không thể lấy một tuyến mô phỏng đi bộ:', error);
-              continue;
+        let nearestStreetRoute = null;
+        let nearestStreetDistance = Number.POSITIVE_INFINITY;
+        for (let index = 0; index < 4; index += 1) {
+          const bearing = (startBearing + index * 90) * (Math.PI / 180);
+          const origin = {
+            latitude: destination.latitude + (routeSearchRadius * Math.cos(bearing)) / 111320,
+            longitude: destination.longitude + (routeSearchRadius * Math.sin(bearing))
+              / (111320 * Math.cos(destination.latitude * (Math.PI / 180))),
+          };
+          let candidateRoute;
+          try {
+            candidateRoute = await requestWalkingRoute(origin);
+            successfulRouteRequests += 1;
+          } catch (error) {
+            lastRouteRequestError = error;
+            console.error('Không thể lấy một tuyến mô phỏng đi bộ:', error);
+            if (error.message?.includes('HTTP 429')) {
+              rateLimited = true;
+              break;
             }
-            const clippedRoute = candidateRoute
-              ? clipRouteAtGeofence(candidateRoute.geometry.coordinates)
-              : null;
-            if (!candidateRoute || !clippedRoute || clippedRoute.distance < 70) continue;
+            continue;
+          }
+          if (!candidateRoute) continue;
 
-            const simulationDistance = Math.min(75, clippedRoute.distance);
-            route = {
-              ...candidateRoute,
-              distance: simulationDistance,
-              duration: candidateRoute.duration * simulationDistance / candidateRoute.distance,
-              geometry: {
-                ...candidateRoute.geometry,
-                coordinates: takeLastRouteDistance(clippedRoute.coordinates, simulationDistance),
-              },
-            };
+          const approach = findRouteApproachToSite(candidateRoute.geometry.coordinates);
+          if (!approach || approach.distance < 70
+            || approach.distanceToSite > radiusMeters + 70) continue;
+
+          const simulationDistance = Math.min(75, approach.distance);
+          const candidate = {
+            ...candidateRoute,
+            distance: simulationDistance,
+            duration: candidateRoute.duration * simulationDistance / candidateRoute.distance,
+            enteredGeofence: approach.enteredGeofence,
+            distanceToSite: approach.distanceToSite,
+            geometry: {
+              ...candidateRoute.geometry,
+              coordinates: takeLastRouteDistance(approach.coordinates, simulationDistance),
+            },
+          };
+
+          if (approach.enteredGeofence) {
+            route = candidate;
             break;
           }
-          if (route) break;
+          if (approach.distanceToSite < nearestStreetDistance) {
+            nearestStreetRoute = candidate;
+            nearestStreetDistance = approach.distanceToSite;
+          }
+          if (index < 3) await new Promise((resolve) => setTimeout(resolve, 500));
         }
+        if (!route) route = nearestStreetRoute;
       }
 
       if (!route) {
         if (successfulRouteRequests === 0 && lastRouteRequestError) {
           throw lastRouteRequestError;
+        }
+        if (rateLimited) {
+          throw new Error('Máy chủ tìm đường đang quá tải. Hãy chờ một phút rồi thử lại.');
         }
         throw new Error('Không tìm được tuyến đi bộ thực tế dài khoảng 70-80 m đến vòng di tích này.');
       }
@@ -1224,6 +1293,9 @@ function MapScreen({
       });
       setSimulationInfo({
         site: selected,
+        arrivalMessage: route.enteredGeofence
+          ? 'Đang đi vào vòng di tích'
+          : `Đang đi đến đường gần nhất · cách di tích khoảng ${Math.round(route.distanceToSite)} m`,
         coordinates: coordinatesList,
         cumulativeDistances,
         stepCount,
@@ -1510,7 +1582,7 @@ function MapScreen({
           <View style={styles.routeFloatingCopy}>
             <Text numberOfLines={1} style={styles.routeFloatingTitle}>
               {simulationInfo?.status === 'walking'
-                ? `Đang đi đến ${simulationInfo.site.name} · ${routeInfo?.distance || ''}`
+                ? `${simulationInfo.arrivalMessage} · ${routeInfo?.distance || ''}`
                 : `Tuyến đi bộ · ${routeInfo.distance} · ${routeInfo.duration}`}
             </Text>
             {simulationInfo?.status === 'walking' && (

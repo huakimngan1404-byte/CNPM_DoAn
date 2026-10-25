@@ -3,7 +3,7 @@ services:
     name: quan1-site-service
     runtime: docker
     plan: free
-    rootDir: BE/site-service
+    rootDir: DoAn/BE/site-service
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
@@ -16,7 +16,7 @@ services:
     name: quan1-translation-service
     runtime: docker
     plan: free
-    rootDir: BE/translation-service
+    rootDir: DoAn/BE/translation-service
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     envVars:
@@ -28,19 +28,30 @@ services:
   - type: web
     name: quan1-web
     runtime: static
-    rootDir: FE/APP/thuyet-minh-app
+    rootDir: DoAn/FE/APP/thuyet-minh-app
     buildCommand: npm ci && npx expo export --platform web
     staticPublishPath: dist
     envVars:
       - key: EXPO_PUBLIC_API_URL
+        value: https://quan1-site-service.onrender.com
+      - key: EXPO_PUBLIC_TRANSLATION_URL
+        value: https://quan1-translation-service.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+        
+  - type: web
+    name: quan1-admin
+    runtime: static
+    rootDir: DoAn/FE/WEB/thuyet-minh-web
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
         fromService:
           type: web
           name: quan1-site-service
-          property: host
-      - key: EXPO_PUBLIC_TRANSLATION_URL
-        fromService:
-          type: web
-          name: quan1-translation-service
           property: host
     routes:
       - type: rewrite

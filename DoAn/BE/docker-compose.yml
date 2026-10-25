@@ -8,7 +8,8 @@ services:
       MONGO_URI: ${MONGODB_URI:?Set MONGODB_URI in .env}
       MONGO_DATABASE: ${MONGO_DATABASE:-district1_historical_db}
       TRANSLATION_SERVICE_URL: http://translation-service:8001
-
+      ADMIN_INITIAL_USERNAME: ${ADMIN_INITIAL_USERNAME:-}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
   translation-service:
     build: ./translation-service
     container_name: quan1_translation_service

@@ -26,10 +26,8 @@ class SiteService:
 
     async def process_gps(self, user_id: str, lat: float, lng: float, lang: str):
         await self.ensure_catalog_seeded()
-        # 1. Lưu tracking
-        await self.repo.save_tracking(user_id, lat, lng)
 
-        # 2. Phát hiện vùng địa lý (Geofencing) bằng thuật toán hình học
+        # Phát hiện vùng địa lý (Geofencing) bằng thuật toán hình học
         sites = await self.repo.get_all_sites()
         entered_site = None
         nearest_distance = None
@@ -37,8 +35,7 @@ class SiteService:
         for site in sites:
             site_lng = site["location"]["coordinates"][0]
             site_lat = site["location"]["coordinates"][1]
-            geofence_radius = site.get("geofence_radius", 50)
-            
+            geofence_radius = 100
             # Tính toán khoảng cách
             distance = self.calculate_distance(lat, lng, site_lat, site_lng)
             if distance <= geofence_radius and (
@@ -97,10 +94,27 @@ class SiteService:
             print(f"Lỗi kết nối RabbitMQ: {e}")
 
     async def add_site(self, data: dict):
-        # Yêu cầu 3.2: Kiểm tra hợp lệ ở lớp Service trước khi lưu
+        if not data.get("name") or not data.get("code") or not data.get("location"):
+            raise ValueError("Cần có mã, tên và vị trí di tích.")
+        if await self.repo.get_site_by_code(data["code"]):
+            raise ValueError("Mã di tích đã tồn tại.")
+        data["geofence_radius"] = 100.0
+        await self.repo.create_site(data)
+        return {"status": "success"}
+
+    async def update_site(self, code: str, data: dict):
+        existing = await self.repo.get_site_by_code(code)
+        if not existing:
+            raise LookupError("Không tìm thấy di tích.")
         if not data.get("name") or not data.get("location"):
-            raise ValueError("Dữ liệu không hợp lệ")
-        await self.repo.save_site(data)
+            raise ValueError("Cần có tên và vị trí di tích.")
+        data["geofence_radius"] = 100.0
+        await self.repo.update_site(code, data)
+        return {"status": "success"}
+
+    async def delete_site(self, code: str):
+        if not await self.repo.delete_site(code):
+            raise LookupError("Không tìm thấy di tích.")
         return {"status": "success"}
 
     async def get_sites(self):
@@ -108,7 +122,22 @@ class SiteService:
         sites = await self.repo.get_all_sites()
         return sites
 
+    async def get_admin_sites(self):
+        await self.ensure_catalog_seeded()
+        return await self.repo.get_admin_sites()
+
     async def initialize_default_site(self):
         await self.repo.seed_default_sites()
         self.catalog_seeded = True
         return {"message": "Đã nạp dữ liệu các điểm tham quan Quận 1 thành công!"}
+
+    async def heartbeat_listener(self, session_id: str, site_code: str | None = None):
+        await self.repo.heartbeat_listener(session_id, site_code)
+        return {"status": "active"}
+
+    async def leave_listener(self, session_id: str):
+        removed = await self.repo.leave_listener(session_id)
+        return {"status": "left", "removed": removed}
+
+    async def get_active_listener_stats(self):
+        return await self.repo.get_active_listener_stats()
