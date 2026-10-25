@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: quan1-site-service
+    name: quan1-site-service-a1vt
     runtime: docker
     plan: free
     rootDir: DoAn/BE/site-service
@@ -13,7 +13,7 @@ services:
         value: district1_historical_db
 
   - type: web
-    name: quan1-translation-service
+    name: quan1-translation-service-d3xw
     runtime: docker
     plan: free
     rootDir: DoAn/BE/translation-service
@@ -26,7 +26,7 @@ services:
         value: district1_historical_db
 
   - type: web
-    name: quan1-web
+    name: quan1-web-4pxd
     runtime: static
     rootDir: DoAn/FE/APP/thuyet-minh-app
     buildCommand: npm ci && npx expo export --platform web
@@ -35,12 +35,12 @@ services:
       - key: EXPO_PUBLIC_API_URL
         fromService:
           type: web
-          name: quan1-site-service
+          name: quan1-site-service-a1vt
           property: host
       - key: EXPO_PUBLIC_TRANSLATION_URL
         fromService:
           type: web
-          name: quan1-translation-service
+          name: quan1-translation-service-d3xw
           property: host
     routes:
       - type: rewrite
@@ -57,7 +57,7 @@ services:
       - key: VITE_API_URL
         fromService:
           type: web
-          name: quan1-site-service
+          name: quan1-site-service-a1vt
           property: host
     routes:
       - type: rewrite
