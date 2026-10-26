@@ -13,8 +13,9 @@ import {
   ArrowLeft, ArrowRight, Bookmark, Check, ChevronDown, ChevronRight,
   CircleHelp, Clock3, Compass, Headphones, Heart, Info, Languages, LocateFixed,
   Map, MapPin, MoreHorizontal, Navigation, Pause, Play, RotateCcw,
-  RotateCw, Search, Settings, Share2, SlidersHorizontal, Sparkles, X,
+  QrCode, RotateCw, Search, Settings, Share2, SlidersHorizontal, Sparkles, X,
 } from 'lucide-react-native';
+import QRCode from 'react-native-qrcode-svg';
 import { languages, sites } from './src/data/heritage.js';
 import {
   apiBaseUrl, fetchNearbySites, fetchSiteAudio, fetchSites,
@@ -46,6 +47,7 @@ function LocalizedTextInput({ placeholder, ...props }) {
 const accent = '#F04D2E';
 const ink = '#22201F';
 const muted = '#98928C';
+const publicAppUrl = 'https://quan1-web-4pxd.onrender.com/';
 
 const tabs = [
   { key: 'home', label: 'Khám phá', icon: Compass },
@@ -72,6 +74,7 @@ export default function App() {
   const [appLanguage, setAppLanguage] = useState(languages[0]);
   const [audioLanguage, setAudioLanguage] = useState(languages[0]);
   const [languagePicker, setLanguagePicker] = useState(false);
+  const [qrCodeVisible, setQrCodeVisible] = useState(false);
   const [languagePickerMode, setLanguagePickerMode] = useState('app');
   const [savedIds, setSavedIds] = useState([]);
   const geofenceInsideRef = useRef(new Set());
@@ -92,6 +95,7 @@ export default function App() {
   const [pendingAutoPlaySiteId, setPendingAutoPlaySiteId] = useState(null);
   const [mapAudioSiteId, setMapAudioSiteId] = useState(null);
   const [readyAudioSiteId, setReadyAudioSiteId] = useState(null);
+  const [miniPlayerDismissed, setMiniPlayerDismissed] = useState(false);
   const audioLoadAwaitingSiteRef = useRef(null);
   const [apiLoading, setApiLoading] = useState(true);
   const [apiError, setApiError] = useState('');
@@ -154,6 +158,7 @@ export default function App() {
 useEffect(() => {
   let locationSubscription = null;
   let isActive = true;
+  let hasInitialLocation = false;
 
   const startTracking = async () => {
     if (!autoPlay) return;
@@ -186,11 +191,12 @@ useEffect(() => {
           if (distance <= radius || (wasInside && distance <= radius + 15)) {
             nextInside.add(site.id);
           }
-          if (!wasInside && distance <= radius) {
+          if (hasInitialLocation && !wasInside && distance <= radius) {
             newlyEntered.push({ site, distance });
           }
         });
         geofenceInsideRef.current = nextInside;
+        hasInitialLocation = true;
 
         const enteredSite = newlyEntered
           .sort((left, right) => left.distance - right.distance)[0]?.site;
@@ -322,6 +328,7 @@ useEffect(() => {
   };
 
   const openDetail = (site) => {
+    setMiniPlayerDismissed(false);
     setPendingAutoPlaySiteId(null);
     setSelectedSite(site);
     setScreen('detail');
@@ -336,6 +343,7 @@ useEffect(() => {
   };
 
   const playSelectedAudio = () => {
+    setMiniPlayerDismissed(false);
     if (audioLoading) {
       showToast('Đang chuẩn bị audio, vui lòng đợi một chút.');
       return;
@@ -353,12 +361,14 @@ useEffect(() => {
   };
 
   const playMapAudio = (site) => {
+    setMiniPlayerDismissed(false);
     if (audioLoading || !audioStatus.isLoaded || selectedSite?.id !== site.id) {
       showToast('Audio đang được chuẩn bị. Vui lòng đợi một chút.');
       return;
     }
     if (playing) audioPlayer.pause();
     else audioPlayer.play();
+    setMiniPlayerDismissed(false);
   };
 
   const simulateArrival = useCallback((site) => {
@@ -484,6 +494,7 @@ useEffect(() => {
               sites={siteList}
               savedIds={savedIds}
               onLanguage={() => openLanguagePicker('app')}
+              onShowQr={() => setQrCodeVisible(true)}
               onSearch={() => { setActiveTab('explore'); setScreen('main'); }}
               onOpenSite={openDetail}
               onSave={toggleSaved}
@@ -547,7 +558,7 @@ useEffect(() => {
               onNotify={showToast}
             />
           )}
-          {autoPlay && screen === 'main' && activeTab !== 'map' && (
+          {autoPlay && !miniPlayerDismissed && screen === 'main' && activeTab !== 'map' && (
             <View style={styles.globalMiniPlayer}>
               <View style={[styles.miniPlayerProgress, { width: `${Math.min(100, audioStatus.duration ? (elapsed / audioStatus.duration) * 100 : 0)}%` }]} />
               <Pressable style={styles.miniPlayerContent} onPress={() => setScreen('detail')}>
@@ -558,6 +569,17 @@ useEffect(() => {
                 </View>
                 <Pressable style={styles.miniPlayerBtn} onPress={(event) => { event.stopPropagation(); playSelectedAudio(); }}>
                   {playing ? <Pause size={15} color={ink} fill={ink} /> : <Play size={15} color={ink} fill={ink} />}
+                </Pressable>
+                <Pressable
+                  style={styles.miniPlayerClose}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    setMiniPlayerDismissed(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Ẩn thanh phát audio"
+                >
+                  <X size={16} color="#D5D0CC" />
                 </Pressable>
               </Pressable>
             </View>
@@ -583,6 +605,35 @@ useEffect(() => {
           setLanguagePicker(false);
         }}
       />
+      <Modal
+        visible={qrCodeVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQrCodeVisible(false)}
+      >
+        <Pressable style={styles.qrModalScrim} onPress={() => setQrCodeVisible(false)}>
+          <Pressable style={styles.qrModalCard} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.qrModalHeader}>
+              <View style={styles.qrModalHeading}>
+                <Text style={styles.qrModalTitle}>Mở Di Tích Q1 trên điện thoại</Text>
+                <Text style={styles.qrModalSubtitle}>Dùng camera điện thoại quét mã QR</Text>
+              </View>
+              <Pressable
+                style={styles.qrModalClose}
+                onPress={() => setQrCodeVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Đóng mã QR"
+              >
+                <X size={18} color="#6F6963" />
+              </Pressable>
+            </View>
+            <View style={styles.qrCodeFrame}>
+              <QRCode value={publicAppUrl} size={220} color={ink} backgroundColor="#fff" />
+            </View>
+            <Text style={styles.qrModalUrl} numberOfLines={2}>{publicAppUrl}</Text>
+          </Pressable>
+        </Pressable>
+      </Modal>
       {!!toast && <View style={styles.toast}><Check size={15} color="#fff" /><Text style={styles.toastText}>{toast}</Text></View>}
     </SafeAreaView>
     </SafeAreaProvider>
@@ -590,7 +641,7 @@ useEffect(() => {
   );
 }
 
-function AppHeader({ language, onLanguage, title, subtitle, dark = false }) {
+function AppHeader({ language, onLanguage, onShowQr, title, subtitle, dark = false }) {
   return (
     <View style={[styles.appHeader, dark && styles.headerOnDark]}>
       <View style={styles.headerTitles}>
@@ -603,6 +654,16 @@ function AppHeader({ language, onLanguage, title, subtitle, dark = false }) {
         {!!subtitle && <Text style={[styles.headerSubtitle, dark && styles.headerSubtitleDark]}>{subtitle}</Text>}
       </View>
       <View style={styles.headerActions}>
+        {!!onShowQr && (
+          <Pressable
+            style={[styles.qrHeaderButton, dark && styles.languageButtonDark]}
+            onPress={onShowQr}
+            accessibilityRole="button"
+            accessibilityLabel="Hiển thị mã QR để mở website trên điện thoại"
+          >
+            <QrCode size={17} color={dark ? '#fff' : ink} />
+          </Pressable>
+        )}
         <Pressable style={[styles.languageButton, dark && styles.languageButtonDark]} onPress={onLanguage}>
           <Text style={styles.languageFlag}>{language.flag}</Text><Text style={[styles.languageCode, dark && styles.textWhite]}>{language.id.toUpperCase()}</Text><ChevronDown size={12} color={dark ? '#fff' : ink} />
         </Pressable>
@@ -625,7 +686,7 @@ function ApiStatusBanner({ loading, error, apiUrl, onRetry }) {
   );
 }
 
-function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch, onOpenSite, onSave, onMap, onSeeAll, onNearby }) {
+function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr, onSearch, onOpenSite, onSave, onMap, onSeeAll, onNearby }) {
   const [slide, setSlide] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
   const carouselRef = useRef(null);
@@ -649,13 +710,15 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch,
     const next = Math.round(event.nativeEvent.contentOffset.x / carouselWidth);
     setSlide(next);
   };
+  const showNextFeatured = () => {
+    if (!carouselWidth || !featured.length) return;
+    const nextSlide = (slide + 1) % featured.length;
+    setSlide(nextSlide);
+    carouselRef.current?.scrollTo({ x: nextSlide * carouselWidth, animated: true });
+  };
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={Platform.OS === 'web'}>
-      <AppHeader language={language} onLanguage={onLanguage} />
-      <View style={styles.homeGreeting}>
-        <View><Text style={styles.greetingKicker}>{todayLabel(language.id)}</Text><Text style={styles.greetingTitle}>Chào buổi sáng <Text style={styles.wave}>☀️</Text></Text><Text style={styles.greetingSub}>Hôm nay mình cùng khám phá nhé.</Text></View>
-        <Pressable style={styles.avatarButton} onPress={() => {}}><Text style={styles.avatarInitial}>Q1</Text><View style={styles.onlineDot} /></Pressable>
-      </View>
+      <AppHeader language={language} onLanguage={onLanguage} onShowQr={onShowQr} />
       <Pressable style={styles.searchLauncher} onPress={onSearch}>
         <Search size={18} color="#99928D" /><Text style={styles.searchPlaceholder}>Bạn muốn khám phá nơi nào?</Text><View style={styles.searchTuning}><SlidersHorizontal size={15} color="#736E69" /></View>
       </Pressable>
@@ -692,6 +755,7 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch,
               saved={savedIds.includes(site.id)}
               onOpen={() => onOpenSite(site)}
               onSave={() => onSave(site)}
+              onNext={showNextFeatured}
             />
           ))}
         </ScrollView>
@@ -702,33 +766,6 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch,
       </View>}
       
       {!featured.length && <View style={styles.noSitesCard}><Text style={styles.noSitesText}>Chưa có di tích phù hợp trong dữ liệu từ BE.</Text></View>}
-
-      {/* --- BẮT ĐẦU PHẦN THÊM MỚI: TOUR ĐI BỘ --- */}
-      <View style={styles.sectionHeading}>
-        <View>
-          <View style={styles.sectionEyebrow}>
-            <MapPin size={12} color={accent} />
-            <Text style={styles.sectionEyebrowText}>SELF-GUIDED WALKING TOUR</Text>
-          </View>
-          <Text style={styles.sectionTitle}>Trải nghiệm 1 ngày Quận 1</Text>
-          <Text style={styles.sectionSub}>Tuyến đường đi bộ kèm thuyết minh vỉa hè</Text>
-        </View>
-      </View>
-
-      <Pressable style={styles.tourCard} onPress={() => onMap()}>
-        <ImageBackground source={{ uri: 'https://images.unsplash.com/photo-1559592413-7cec4d0cae2b' }} style={styles.tourImage} imageStyle={{ borderRadius: 14 }}>
-          <LinearGradient colors={['#00000000', '#000000E6']} style={StyleSheet.absoluteFill} borderRadius={14} />
-          <View style={styles.tourContent}>
-            <View style={styles.tourTag}>
-              <Headphones size={11} color="#fff" />
-              <Text style={styles.tourTagText}>Audio Outdoor tự động</Text>
-            </View>
-            <Text style={styles.tourTitle}>Tinh hoa Sài Gòn</Text>
-            <Text style={styles.tourRoute}>Chợ Bến Thành ➔ Dinh Độc Lập ➔ Nhà thờ Đức Bà ➔ Bưu điện ➔ Nhà hát</Text>
-          </View>
-        </ImageBackground>
-      </Pressable>
-      {/* --- KẾT THÚC PHẦN THÊM MỚI --- */}
 
       <View style={styles.sectionHeading}>
         <View><Text style={styles.sectionTitle}>Điểm đến quanh bạn</Text><Text style={styles.sectionSub}>Những câu chuyện chỉ cách bạn vài bước chân</Text></View>
@@ -752,7 +789,7 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch,
   );
 }
 
-function FeaturedCard({ site, index, width, saved, onOpen, onSave }) {
+function FeaturedCard({ site, index, width, saved, onOpen, onSave, onNext }) {
   const palettes = [['#312723', '#91654B', '#E2B78B'], ['#243135', '#617A70', '#B6C1A7'], ['#32302B', '#88735D', '#D3B58F']];
   const colors = palettes[index % palettes.length];
   return (
@@ -775,16 +812,26 @@ function FeaturedCard({ site, index, width, saved, onOpen, onSave }) {
             <View style={styles.featuredDuration}><Clock3 size={12} color="#fff" />
             <Text style={styles.featuredDurationText}>{site.duration}
               </Text></View>
-              <View style={styles.featuredArrow}><ArrowRight size={17} color="#fff" />
-              </View></View>
+              <Pressable
+                style={styles.featuredArrow}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  onNext();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Xem di tích tiếp theo"
+              >
+                <ArrowRight size={17} color="#fff" />
+              </Pressable>
+            </View>
       </View>
     </Pressable>
   );
 }
 
-function BuildingIllustration({ color = '#C9A37B', large = false }) {
+function BuildingIllustration({ color = '#C9A37B', large = false, style }) {
   return (
-    <View style={[styles.buildingArt, large && styles.buildingArtLarge]} pointerEvents="none">
+    <View style={[styles.buildingArt, large && styles.buildingArtLarge, style]} pointerEvents="none">
       <View style={[styles.artDome, { borderColor: color }]} />
       <View style={[styles.artRoof, { backgroundColor: color }]} />
       <View style={[styles.artFacade, { borderColor: `${color}AA` }]}>
@@ -916,15 +963,15 @@ function DetailScreen({ site, sites: siteList, language, playing, audioLoading, 
         <ImageBackground source={{ uri: site.image }} style={StyleSheet.absoluteFill} imageStyle={styles.detailImage}>
           <LinearGradient colors={[`${site.paint[0]}55`, `${site.paint[1]}75`, `${site.paint[0]}F0`]} style={StyleSheet.absoluteFill} />
         </ImageBackground>
-        <BuildingIllustration color={site.paint[2]} large />
+        <BuildingIllustration color={site.paint[2]} large style={styles.detailBuildingArt} />
         <View style={styles.detailTopBar}><Pressable style={styles.detailRound} onPress={onBack}><ArrowLeft size={19} color="#fff" /></Pressable><View style={styles.detailTopActions}><Pressable style={styles.detailRound} onPress={onSave}><Bookmark size={17} color="#fff" fill={isSaved ? '#fff' : 'transparent'} /></Pressable><Pressable style={styles.detailRound} onPress={() => {}}><MoreHorizontal size={19} color="#fff" /></Pressable></View></View>
-        <View style={styles.detailHeroBottom}><View style={styles.featuredTag}><Sparkles size={11} color="#fff" /><Text style={styles.featuredTagText}>{site.category.toUpperCase()}</Text></View><Text style={styles.detailHeroTitle}>{site.name}</Text><View style={styles.detailHeroAddress}><MapPin size={13} color="#eee" /><Text style={styles.detailHeroAddressText}>{site.address} · {site.distance}</Text></View></View>
+        <View style={styles.detailHeroBottom}><View style={[styles.featuredTag, styles.detailHeroTag]}><Sparkles size={11} color="#fff" /><Text style={styles.featuredTagText}>{site.category.toUpperCase()}</Text></View><Text style={styles.detailHeroTitle}>{site.name}</Text><View style={styles.detailHeroAddress}><MapPin size={13} color="#eee" /><Text style={styles.detailHeroAddressText}>{site.address} · {site.distance}</Text></View></View>
       </View>
       <View style={styles.detailContent}>
         <View style={styles.detailAudioCard}>
           <View style={styles.audioCardTop}><View style={styles.audioLangRow}><View style={styles.audioLangIcon}><Text>{language.flag}</Text></View><View><Text style={styles.audioLangName}>{language.name}</Text><Text style={styles.audioVoice}>{voiceLabel(language.id)}</Text></View></View><Pressable style={styles.audioChangeLang} onPress={onLanguage}><Languages size={15} color="#756E68" /><ChevronDown size={12} color="#756E68" /></Pressable></View>
           <View style={styles.audioTrack}><View style={styles.audioTimeRow}><Text style={styles.audioTimeCurrent}>{formatDuration(elapsed)}</Text><Text style={styles.audioTimeText}>{duration > 0 ? formatDuration(duration) : '--:--'}</Text></View><View style={styles.audioProgress}><View style={[styles.audioProgressFill, { width: progress }]} /><View style={[styles.audioKnob, { left: progress }]} /></View></View>
-          <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{audioLoading ? <ActivityIndicator size="small" color="#fff" /> : playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable><View style={styles.speedPill}><Text>1x</Text></View></View>
+          <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{audioLoading ? <ActivityIndicator size="small" color="#fff" /> : playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable></View>
           {!!audioError && <Text style={styles.audioPlaybackError}>{audioError}</Text>}
         </View>
         <View style={styles.detailStoryHeader}><View><Text style={styles.storyEyebrow}>CÂU CHUYỆN DI SẢN</Text><Text style={styles.storyTitle}>Lắng nghe lịch sử</Text></View><Pressable style={styles.shareButton} onPress={() => {}}><Share2 size={16} color="#6E6964" /></Pressable></View>
@@ -1737,21 +1784,6 @@ function voiceLabel(language) {
   }[language] || 'Audio narration';
 }
 
-function todayLabel(language = 'vi') {
-  const localeByLanguage = {
-    vi: 'vi-VN',
-    en: 'en-US',
-    ja: 'ja-JP',
-    zh: 'zh-CN',
-    fr: 'fr-FR',
-  };
-  return new Intl.DateTimeFormat(localeByLanguage[language] || 'vi-VN', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  }).format(new Date()).toLocaleUpperCase(localeByLanguage[language] || 'vi-VN');
-}
-
 function scrollHorizontallyWithWheel(event) {
   event.preventDefault();
   const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
@@ -1872,6 +1904,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, fontWeight: '800', color: ink, letterSpacing: -0.4 },
   headerSubtitle: { marginTop: 2, color: muted, fontSize: 10 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  qrHeaderButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#EBE7E2', borderRadius: 11, backgroundColor: '#fff' },
   languageButton: { height: 34, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, borderWidth: 1, borderColor: '#EBE7E2', borderRadius: 11, backgroundColor: '#fff' },
   languageFlag: { fontSize: 14 },
   languageCode: { color: ink, fontSize: 10, fontWeight: '800' },
@@ -1879,15 +1912,8 @@ const styles = StyleSheet.create({
   headerSubtitleDark: { color: '#ffffffa8' },
   languageButtonDark: { borderColor: '#ffffff40', backgroundColor: '#ffffff18' },
   textWhite: { color: '#fff' },
-  homeGreeting: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 11, marginBottom: 14 },
-  greetingKicker: { color: '#A19A93', fontSize: 8, fontWeight: '800', letterSpacing: 1.15 },
-  greetingTitle: { marginTop: 5, color: ink, fontSize: 22, fontWeight: '800', letterSpacing: -0.65 },
-  greetingSub: { marginTop: 4, color: '#8F8983', fontSize: 10 },
-  wave: { fontSize: 19 },
-  avatarButton: { position: 'relative', width: 41, height: 41, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ECDDD1', borderRadius: 15, backgroundColor: '#F7E6D9' },
-  avatarInitial: { color: '#835A41', fontSize: 11, fontWeight: '900' },
   onlineDot: { position: 'absolute', right: -1, bottom: -1, width: 11, height: 11, borderWidth: 2, borderColor: '#FBFAF8', borderRadius: 7, backgroundColor: '#54B688' },
-  searchLauncher: { height: 44, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 12, borderWidth: 1, borderColor: '#EEEAE6', borderRadius: 12, backgroundColor: '#fff' },
+  searchLauncher: { height: 44, marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 12, borderWidth: 1, borderColor: '#EEEAE6', borderRadius: 12, backgroundColor: '#fff' },
   searchPlaceholder: { flex: 1, color: '#A29B95', fontSize: 10 },
   searchTuning: { width: 29, height: 29, alignItems: 'center', justifyContent: 'center', borderRadius: 9, backgroundColor: '#F7F5F2' },
   sectionHeading: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 23, marginBottom: 11 },
@@ -2006,10 +2032,12 @@ const styles = StyleSheet.create({
   detailScroll: { paddingBottom: 15 },
   detailHero: { position: 'relative', height: 275, overflow: 'hidden', justifyContent: 'flex-end' },
   detailImage: { opacity: 0.56 },
+  detailBuildingArt: { right: 24, bottom: 42, opacity: 0.42 },
   detailTopBar: { position: 'absolute', top: Platform.OS === 'web' ? 8 : 4, right: 15, left: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   detailTopActions: { flexDirection: 'row', gap: 7 },
   detailRound: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ffffff52', borderRadius: 12, backgroundColor: '#1D1A185C' },
   detailHeroBottom: { zIndex: 2, paddingHorizontal: 18, paddingBottom: 18 },
+  detailHeroTag: { alignSelf: 'flex-start' },
   detailHeroTitle: { marginTop: 8, color: '#fff', fontSize: 25, fontWeight: '800', letterSpacing: -0.6 },
   detailHeroAddress: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 5 },
   detailHeroAddressText: { color: '#ffffffd0', fontSize: 9 },
@@ -2033,8 +2061,6 @@ const styles = StyleSheet.create({
   audioControlRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 },
   skipButton: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#F7F5F2' },
   largePlay: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: accent, shadowColor: accent, shadowOpacity: 0.28, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
-  speedPill: { paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: '#ECE8E4', borderRadius: 7 },
-  speedText: { color: '#77716B', fontSize: 8, fontWeight: '700' },
   detailStoryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 19 },
   storyEyebrow: { color: accent, fontSize: 7, fontWeight: '800', letterSpacing: 0.95 },
   storyTitle: { marginTop: 4, color: ink, fontSize: 17, fontWeight: '800' },
@@ -2195,6 +2221,16 @@ const styles = StyleSheet.create({
   miniPlayerEyebrow: { color: accent, fontSize: 7, fontWeight: '800', letterSpacing: 0.5, marginBottom: 2 },
   miniPlayerTitle: { color: '#fff', fontSize: 11, fontWeight: '700' },
   miniPlayerBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  miniPlayerClose: { width: 32, height: 34, alignItems: 'center', justifyContent: 'center' },
+  qrModalScrim: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20, backgroundColor: '#17141299' },
+  qrModalCard: { width: '100%', maxWidth: 360, alignItems: 'center', padding: 20, borderRadius: 20, backgroundColor: '#fff' },
+  qrModalHeader: { width: '100%', flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  qrModalHeading: { flex: 1 },
+  qrModalTitle: { color: ink, fontSize: 17, fontWeight: '800' },
+  qrModalSubtitle: { marginTop: 5, color: '#817A74', fontSize: 12 },
+  qrModalClose: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#F6F3F0' },
+  qrCodeFrame: { marginTop: 18, padding: 12, borderWidth: 1, borderColor: '#EEEAE6', borderRadius: 14, backgroundColor: '#fff' },
+  qrModalUrl: { marginTop: 14, color: '#77716B', fontSize: 11, textAlign: 'center' },
 });
 
 // Hàm tính khoảng cách đường chim bay (Haversine Formula) - Trả về đơn vị Mét
