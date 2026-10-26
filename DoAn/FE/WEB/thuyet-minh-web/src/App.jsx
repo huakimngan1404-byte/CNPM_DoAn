@@ -59,7 +59,8 @@ const supportedLanguages = [
   { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳' },
   { code: 'en', name: 'English', flag: '🇬🇧' },
   { code: 'ja', name: '日本語', flag: '🇯🇵' },
-  { code: 'zh-CN', name: '中文', flag: '🇨🇳' },
+  { code: 'zh', name: '中文', flag: '🇨🇳' },
+  { code: 'fr', name: 'Français', flag: '🇫🇷' },
 ];
 
 const adminAuthRequired = true;
@@ -503,7 +504,8 @@ function ListenerDemo({ siteCode, siteName }) {
     { code: 'vi', name: 'Tiếng Việt' },
     { code: 'en', name: 'English' },
     { code: 'ja', name: '日本語' },
-    { code: 'zh-CN', name: '中文' },
+    { code: 'zh', name: '中文' },
+    { code: 'fr', name: 'Français' },
   ];
   const [selectedLanguage, setSelectedLanguage] = useState('vi');
   const [narration, setNarration] = useState(null);
@@ -822,7 +824,7 @@ function NarrationsPage({ notify }) {
     }
   };
 
-  return <section className="panel content-list-panel"><div className="content-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên di tích, địa chỉ..." /></div><label className="filter-select"><Globe2 size={15} /><select value={selectedLang} onChange={(event) => setSelectedLang(event.target.value)}><option>Tất cả ngôn ngữ</option><option>Tiếng Việt</option><option>English</option><option>日本語</option><option>中文</option></select><ChevronDown size={14} /></label><span className="narration-total">{narrations.length} bài thuyết minh</span></div>
+  return <section className="panel content-list-panel"><div className="content-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên di tích, địa chỉ..." /></div><label className="filter-select"><Globe2 size={15} /><select value={selectedLang} onChange={(event) => setSelectedLang(event.target.value)}><option>Tất cả ngôn ngữ</option><option>Tiếng Việt</option><option>English</option><option>日本語</option><option>中文</option><option>Français</option></select><ChevronDown size={14} /></label><span className="narration-total">{narrations.length} bài thuyết minh</span></div>
     <div className="narration-list">{narrations.map((item, index) => {
       const isActive = activeId === item.id;
       return <div className="narration-row" key={item.id}><div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div><div className="narration-title"><strong>{item.site.name}</strong><span>{item.site.category} <i /> {item.language.name}</span></div><button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site.name}` : isActive && isPlaying ? `Tạm dừng ${item.site.name}` : `Nghe ${item.site.name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id || sites.length === 0} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button><button className="row-more" aria-label="Tùy chọn"><MoreHorizontal size={18} /></button></div>;

@@ -7,6 +7,24 @@ from data.audio_repository import AudioRepository
 
 logger = logging.getLogger(__name__)
 
+FALLBACK_TRANSLATIONS = {
+    ("ben-nha-rong", "fr"): (
+        "Bienvenue à la Maison du Dragon, un lieu lié au parcours de Nguyễn Tất Thành "
+        "pour trouver une voie vers le salut national. Le 5 juin 1911, depuis le port "
+        "de Saïgon, ce jeune homme quitta sa patrie à bord du navire Amiral "
+        "Latouche-Tréville. Cet événement marqua le début d'un long voyage à travers "
+        "de nombreux pays, consacré à l'apprentissage et à l'action révolutionnaire. "
+        "Le bâtiment fut d'abord construit pour accueillir le siège de la compagnie "
+        "maritime Messageries Maritimes. Son architecture associe des influences "
+        "occidentales à des éléments décoratifs orientaux, notamment les dragons qui "
+        "ornent son toit. Aujourd'hui, il abrite le musée Hồ Chí Minh, antenne de "
+        "Hô Chi Minh-Ville, qui conserve des images, des documents et des objets "
+        "relatant la vie et l'engagement du président Hồ Chí Minh. Depuis les rives "
+        "de la rivière de Saïgon, imaginez le port du début du XXe siècle et le "
+        "départ d'un homme déterminé à trouver la voie de l'indépendance pour son pays."
+    ),
+}
+
 
 class SiteTranslationError(Exception):
     def __init__(self, status_code: int, detail: str):
@@ -69,15 +87,30 @@ class SiteTranslationService:
                     raise RuntimeError("Translation returned empty text")
                 translated_text = translated_text.strip()
             except asyncio.TimeoutError as exc:
-                logger.error("[Translation] Timeout for site=%s, lang=%s", site_code, lang)
-                raise SiteTranslationError(504, "Translation timed out") from exc
-            except Exception as exc:
-                logger.exception(
-                    "[Translation] Failed for site=%s, lang=%s", site_code, lang
+                translated_text = FALLBACK_TRANSLATIONS.get((site_code, lang))
+                if translated_text is None:
+                    logger.error("[Translation] Timeout for site=%s, lang=%s", site_code, lang)
+                    raise SiteTranslationError(504, "Translation timed out") from exc
+                logger.warning(
+                    "[Translation] Using saved fallback for site=%s, lang=%s after timeout",
+                    site_code,
+                    lang,
                 )
-                raise SiteTranslationError(
-                    502, "Translation failed. Please try again later."
-                ) from exc
+            except Exception as exc:
+                translated_text = FALLBACK_TRANSLATIONS.get((site_code, lang))
+                if translated_text is not None:
+                    logger.warning(
+                        "[Translation] Using saved fallback for site=%s, lang=%s",
+                        site_code,
+                        lang,
+                    )
+                else:
+                    logger.exception(
+                        "[Translation] Failed for site=%s, lang=%s", site_code, lang
+                    )
+                    raise SiteTranslationError(
+                        502, "Translation failed. Please try again later."
+                    ) from exc
 
         await self.repository.save_translation(
             site_code,
