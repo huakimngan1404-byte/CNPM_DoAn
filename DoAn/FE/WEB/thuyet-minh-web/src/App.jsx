@@ -47,12 +47,12 @@ const navSections = [
 ];
 
 const sectionTitles = {
-  dashboard: ['Bảng điều khiển', 'Theo dõi tổng quan hoạt động thuyết minh di tích.'],
-  places: ['Quản lý di tích', 'Quản lý thông tin, vị trí và nội dung tại các điểm di tích.'],
-  narrations: ['Bài thuyết minh', 'Quản lý nội dung âm thanh theo từng điểm tham quan.'],
-  languages: ['Ngôn ngữ', 'Theo dõi nội dung thuyết minh theo từng ngôn ngữ.'],
-  map: ['Bản đồ & GPS', 'Thiết lập vị trí và vùng kích hoạt tự động thuyết minh.'],
-  settings: ['Cài đặt hệ thống', 'Cấu hình chung cho ứng dụng thuyết minh Di Tích Q1.'],
+  dashboard: ['Bảng điều khiển'],
+  places: ['Quản lý di tích'],
+  narrations: ['Bài thuyết minh'],
+  languages: ['Ngôn ngữ'],
+  map: ['Bản đồ & GPS'],
+  settings: ['Cài đặt hệ thống'],
 };
 
 const supportedLanguages = [
@@ -311,15 +311,31 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
         <div className="page-content">
           <div className="page-heading">
             <div>
-              <div className="eyebrow"><span className="eyebrow-dot" /> KHÔNG GIAN QUẢN TRỊ</div>
               <h1>{page[0]}</h1>
               <p>{page[1]}</p>
             </div>
+            
+            {/* Trang Quản lý di tích */}
             {activePage === 'places' && (
-              <button className="button button-primary" onClick={openCreate}><Plus size={17} /> Thêm di tích</button>
+              <button className="button button-primary" onClick={openCreate}>
+                <Plus size={17} /> Thêm di tích
+              </button>
+            )}
+            
+            {/* Trang Bài thuyết minh -> Thêm bài thuyết minh */}
+            {activePage === 'narrations' && (
+              <button className="button button-primary" onClick={() => notify('Form thêm bài thuyết minh sẽ hiển thị ở đây.')}>
+                <Plus size={17} /> Thêm bài thuyết minh
+              </button>
+            )}
+
+            {/* Trang Ngôn ngữ -> Thêm ngôn ngữ */}
+            {activePage === 'languages' && (
+              <button className="button button-primary" onClick={() => notify('Form thêm ngôn ngữ sẽ hiển thị ở đây.')}>
+                <Plus size={17} /> Thêm ngôn ngữ
+              </button>
             )}
           </div>
-
           {activePage === 'dashboard' && <Dashboard sites={sites} onNavigate={setActivePage} />}
           {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} allSites={sites} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onDelete={removeSite} />}
           {activePage === 'narrations' && <NarrationsPage notify={notify} />}
@@ -384,117 +400,86 @@ function Dashboard({ sites, onNavigate }) {
       window.clearInterval(interval);
     };
   }, []);
+
+  // --- LOGIC MỚI CHO DI TÍCH NỔI BẬT ---
+  const topSitesData = [
+    { id: '1', title: 'Dinh Độc Lập', listens: 2846, tone: 'orange' },
+    { id: '2', title: 'Nhà thờ Đức Bà', listens: 2104, tone: 'blue' },
+    { id: '3', title: 'Bưu điện Trung tâm', listens: 1762, tone: 'green' },
+    { id: '4', title: 'Chợ Bến Thành', listens: 1420, tone: 'violet' },
+    { id: '5', title: 'Nhà hát Thành phố', listens: 1150, tone: 'orange' },
+    { id: '6', title: 'Bảo tàng TP.HCM', listens: 980, tone: 'blue' },
+    { id: '7', title: 'Trụ sở UBND Thành phố', listens: 840, tone: 'green' },
+    { id: '8', title: 'Bến Bạch Đằng', listens: 650, tone: 'violet' },
+  ];
+  const maxListens = topSitesData.length > 0 ? topSitesData[0].listens : 1;
+  // -------------------------------------
+
   return (
     <div className="dashboard-content">
-      <section className="welcome-banner">
-        <div className="welcome-copy">
-          <div className="welcome-chip"><Sparkles size={13} /> TỔNG QUAN HÔM NAY</div>
-          <h2>Xin chào, Admin <span>👋</span></h2>
-          <p>Cùng xem lại hoạt động thuyết minh di tích tại Quận 1 hôm nay.</p>
-          <button className="welcome-link" onClick={() => onNavigate('places')}>Quản lý điểm di tích <ArrowRight size={15} /></button>
-        </div>
-        <div className="welcome-art" aria-hidden="true">
-          <div className="sun-disc" /><div className="art-building building-back"><span /><span /><span /></div><div className="art-building building-front"><span /><span /><span /><span /></div><div className="art-ground" />
-          <div className="art-pin"><MapPin size={17} fill="currentColor" /></div>
-        </div>
-      </section>
+      
+      {/* BỐ CỤC CHIA CỘT MỚI */}
+      <div className="dashboard-main-layout">
+        
+        {/* CỘT TRÁI */}
+        <div className="dashboard-left-column">
+          <section className="stats-grid">
+            <StatCard label="Người đang truy cập" value={activeVisitors === null ? '—' : String(activeVisitors)} icon={Headphones} iconTone="blue" />
+            <StatCard label="Điểm di tích" value={String(sites.length)} icon={MapPin} iconTone="orange" />
+            <StatCard label="Bài thuyết minh" value={String(narrationCount)} icon={AudioLines} iconTone="violet" />
+            <StatCard label="Ngôn ngữ hỗ trợ" value={String(supportedLanguages.length)} icon={Globe2} iconTone="green" />
+          </section>
 
-      <section className="stats-grid">
-        <StatCard label="Người đang truy cập" value={activeVisitors === null ? '—' : String(activeVisitors)} change="TRỰC TIẾP" positive icon={Headphones} iconTone="blue" note={visitorError || 'Ứng dụng và trình duyệt đang hoạt động'} />
-        <StatCard label="Điểm di tích" value={String(sites.length)} change={`${activeCount} đang hoạt động`} positive icon={MapPin} iconTone="orange" note="đồng bộ từ Backend" />
-        <StatCard label="Bài thuyết minh" value={String(narrationCount)} change="có thể tạo audio" positive icon={AudioLines} iconTone="violet" note={`${sites.length} di tích × ${supportedLanguages.length} ngôn ngữ`} />
-        <StatCard label="Ngôn ngữ hỗ trợ" value={String(supportedLanguages.length)} change="đồng bộ với Backend" positive icon={Globe2} iconTone="green" note="Việt · Anh · Nhật · Trung" />
-      </section>
-
-      <section className="analytics-grid">
-        <div className="panel listening-panel">
-          <div className="panel-heading">
-            <div><h3>Lượt nghe thuyết minh</h3><p>Thống kê hoạt động của người dùng</p></div>
-            <button className="select-button" onClick={() => {}}><span className="select-period-dot" /> 7 ngày qua <ChevronDown size={15} /></button>
-          </div>
-          <div className="chart-legend"><span className="legend-dot" /> Lượt nghe <span className="legend-period">01 — 07 Tháng 10, 2026</span></div>
-          <div className="chart-wrap">
-            <div className="chart-ylabels"><span>1.000</span><span>750</span><span>500</span><span>250</span><span>0</span></div>
-            <div className="chart-area">
-              <div className="chart-gridlines"><i /><i /><i /><i /><i /></div>
-              <svg viewBox="0 0 720 204" preserveAspectRatio="none" role="img" aria-label="Biểu đồ lượt nghe tăng dần trong 7 ngày">
-                <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#ea5538" stopOpacity=".18" /><stop offset="100%" stopColor="#ea5538" stopOpacity="0" /></linearGradient></defs>
-                <path d="M0 157 C35 145 48 149 74 136 S114 143 145 119 S190 123 218 111 S263 118 291 88 S340 99 365 82 S411 93 437 68 S478 84 510 62 S553 73 583 43 S625 55 654 33 S691 39 720 16 L720 204 L0 204 Z" fill="url(#chartFill)" />
-                <path d="M0 157 C35 145 48 149 74 136 S114 143 145 119 S190 123 218 111 S263 118 291 88 S340 99 365 82 S411 93 437 68 S478 84 510 62 S553 73 583 43 S625 55 654 33 S691 39 720 16" fill="none" stroke="#e95a3f" strokeWidth="3" vectorEffect="non-scaling-stroke" />
-                <circle cx="720" cy="16" r="5.5" fill="#fff" stroke="#e95a3f" strokeWidth="3" vectorEffect="non-scaling-stroke" />
-              </svg>
-              <div className="chart-xlabels"><span>T.2</span><span>T.3</span><span>T.4</span><span>T.5</span><span>T.6</span><span>T.7</span><span>CN</span></div>
+          <div className="panel listening-panel">
+            <div className="panel-heading">
+              <div><h3>Lượt nghe thuyết minh</h3><p>Thống kê hoạt động của người dùng</p></div>
+              <button className="select-button" onClick={() => {}}><span className="select-period-dot" /> 7 ngày qua <ChevronDown size={15} /></button>
             </div>
-          </div>
-          <div className="chart-bottom"><span><ArrowUpRight size={15} /> <strong>12,8%</strong> tăng so với tuần trước</span><button onClick={() => {}}>Xem báo cáo <ArrowRight size={14} /></button></div>
-        </div>
-
-        <div className="panel top-places-panel">
-          <div className="panel-heading"><div><h3>Di tích nổi bật</h3><p>Được nghe nhiều nhất tuần này</p></div><button className="more-button" aria-label="Tùy chọn"><MoreHorizontal size={20} /></button></div>
-          <div className="top-place-list">
-            <TopPlace rank="01" title="Dinh Độc Lập" subtitle="Lượt nghe" value="2,846" percent={88} tone="orange" />
-            <TopPlace rank="02" title="Nhà thờ Đức Bà" subtitle="Lượt nghe" value="2,104" percent={69} tone="blue" />
-            <TopPlace rank="03" title="Bưu điện Trung tâm" subtitle="Lượt nghe" value="1,762" percent={52} tone="green" />
-          </div>
-          <button className="panel-link" onClick={() => onNavigate('places')}>Xem tất cả di tích <ArrowRight size={15} /></button>
-        </div>
-      </section>
-
-      <section className="bottom-grid">
-        <div className="panel recent-panel">
-          <div className="panel-heading"><div><h3>Di tích từ Backend</h3><p>Danh sách hiện tại được đồng bộ trực tiếp</p></div><button className="text-button" onClick={() => onNavigate('places')}>Xem tất cả <ArrowRight size={14} /></button></div>
-          <div className="recent-table-wrap">
-            <table className="recent-table">
-              <thead><tr><th>TÊN DI TÍCH</th><th>ĐỊA CHỈ</th><th>NGÔN NGỮ</th><th>TRẠNG THÁI</th></tr></thead>
-              <tbody>
-                {sites.slice(0, 4).map((site) => <tr key={site.id}>
-                  <td><div className="place-cell"><PlaceThumb site={site} /><div><strong>{site.name}</strong><small>{site.category}</small></div></div></td>
-                  <td className="address-cell">{site.address}</td>
-                  <td><LanguagePills codes={site.languages} /></td>
-                  <td><StatusBadge status={site.status} /></td>
-                </tr>)}
-                {sites.length === 0 && <tr><td colSpan="4" className="recent-empty">Backend chưa có di tích để hiển thị.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div className="panel activity-panel">
-          <div className="panel-heading"><div><h3>Hoạt động gần đây</h3><p>Thao tác di tích được ghi nhận trong Backend</p></div></div>
-          <div className="activity-list">
-            {recentActivity.map((event) => {
-              const activity = activityDetails[event.action];
-              if (!activity) return null;
-              return <ActivityItem
-                key={event._id}
-                icon={activity.icon}
-                tone={activity.tone}
-                title={activity.title}
-                description={event.site_name}
-                time={formatActivityTime(event.created_at)}
-              />;
-            })}
-            {recentActivity.length === 0 && (
-              <div className="activity-empty">
-                {activityError || 'Chưa có thao tác thêm, sửa hoặc xóa di tích được ghi nhận.'}
+            <div className="chart-legend"><span className="legend-dot" /> Lượt nghe <span className="legend-period">01 — 07 Tháng 10, 2026</span></div>
+            <div className="chart-wrap">
+              <div className="chart-ylabels"><span>1.000</span><span>750</span><span>500</span><span>250</span><span>0</span></div>
+              <div className="chart-area">
+                <div className="chart-gridlines"><i /><i /><i /><i /><i /></div>
+                <svg viewBox="0 0 720 204" preserveAspectRatio="none" role="img" aria-label="Biểu đồ lượt nghe tăng dần trong 7 ngày">
+                  <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#ea5538" stopOpacity=".18" /><stop offset="100%" stopColor="#ea5538" stopOpacity="0" /></linearGradient></defs>
+                  <path d="M0 157 C35 145 48 149 74 136 S114 143 145 119 S190 123 218 111 S263 118 291 88 S340 99 365 82 S411 93 437 68 S478 84 510 62 S553 73 583 43 S625 55 654 33 S691 39 720 16 L720 204 L0 204 Z" fill="url(#chartFill)" />
+                  <path d="M0 157 C35 145 48 149 74 136 S114 143 145 119 S190 123 218 111 S263 118 291 88 S340 99 365 82 S411 93 437 68 S478 84 510 62 S553 73 583 43 S625 55 654 33 S691 39 720 16" fill="none" stroke="#e95a3f" strokeWidth="3" vectorEffect="non-scaling-stroke" />
+                  <circle cx="720" cy="16" r="5.5" fill="#fff" stroke="#e95a3f" strokeWidth="3" vectorEffect="non-scaling-stroke" />
+                </svg>
+                <div className="chart-xlabels"><span>T.2</span><span>T.3</span><span>T.4</span><span>T.5</span><span>T.6</span><span>T.7</span><span>CN</span></div>
               </div>
-            )}
+            </div>
+            <div className="chart-bottom"><span><ArrowUpRight size={15} /> <strong>12,8%</strong> tăng so với tuần trước</span><button onClick={() => {}}>Xem báo cáo <ArrowRight size={14} /></button></div>
           </div>
-          <button className="panel-link activity-link" onClick={() => onNavigate('places')}>Quản lý di tích <ArrowRight size={15} /></button>
         </div>
-      </section>
 
-      <section className="bottom-grid lower-grid">
-        <div className="panel map-panel">
-          <div className="panel-heading"><div><h3>Bản đồ di tích</h3><p>12 điểm thuyết minh tại Quận 1</p></div><button className="mini-outline" onClick={() => onNavigate('map')}>Mở bản đồ <ArrowRight size={13} /></button></div>
-          <div className="map-preview">
-            <div className="map-block block-a" /><div className="map-block block-b" /><div className="map-block block-c" /><div className="map-block block-d" />
-            <div className="map-road road-one" /><div className="map-road road-two" /><div className="map-road road-three" />
-            <div className="map-water" /><span className="map-label label-dong-khoi">Đ. Đồng Khởi</span><span className="map-label label-le-loi">Đ. Lê Lợi</span><span className="map-label label-nam-ky">Nam Kỳ Khởi Nghĩa</span>
-            <div className="map-marker marker-one"><MapPin size={15} fill="currentColor" /></div><div className="map-marker marker-two"><MapPin size={15} fill="currentColor" /></div><div className="map-marker marker-three"><MapPin size={15} fill="currentColor" /></div>
-            <div className="map-legend"><i /> Điểm đang hoạt động <i className="legend-warn" /> Bản nháp</div>
+        {/* CỘT PHẢI */}
+        <div className="dashboard-right-column">
+          <div className="panel top-places-panel">
+            <div className="panel-heading"><div><h3>Di tích nổi bật</h3><p>Được nghe nhiều nhất tuần này</p></div><button className="more-button" aria-label="Tùy chọn"><MoreHorizontal size={20} /></button></div>
+            
+            {/* RENDER DANH SÁCH 8 DI TÍCH TỰ ĐỘNG */}
+            <div className="top-place-list">
+              {topSitesData.map((site, index) => {
+                const percent = Math.round((site.listens / maxListens) * 100);
+                return (
+                  <TopPlace 
+                    key={site.id}
+                    rank={`0${index + 1}`.slice(-2)} 
+                    title={site.title} 
+                    subtitle="Lượt nghe" 
+                    value={site.listens.toLocaleString('vi-VN')} 
+                    percent={percent} 
+                    tone={site.tone} 
+                  />
+                );
+              })}
+            </div>
+
+            <button className="panel-link" onClick={() => onNavigate('places')}>Xem tất cả di tích <ArrowRight size={15} /></button>
           </div>
-        </div>
-      </section>
+        </div> 
+      </div>
     </div>
   );
 }
@@ -632,8 +617,18 @@ function ListenerDemo({ siteCode, siteName }) {
   );
 }
 
-function StatCard({ label, value, change, positive, icon: Icon, iconTone, note }) {
-  return <div className="stat-card"><div className={`stat-icon ${iconTone}`}><Icon size={19} strokeWidth={2} /></div><span className="stat-label">{label}</span><div className="stat-value-row"><strong>{value}</strong><span className={`stat-change ${positive ? 'positive' : ''}`}>{positive ? <ArrowUpRight size={13} /> : <Activity size={13} />}{change}</span></div><span className="stat-note">{note}</span></div>;
+function StatCard({ label, value, icon: Icon, iconTone }) {
+  return (
+    <div className="stat-card">
+      <div className={`stat-icon ${iconTone}`}>
+        <Icon size={19} strokeWidth={2} />
+      </div>
+      <span className="stat-label">{label}</span>
+      <div className="stat-value-row">
+        <strong>{value}</strong>
+      </div>
+    </div>
+  );
 }
 
 function TopPlace({ rank, title, subtitle, value, percent, tone }) {
@@ -676,7 +671,6 @@ function PlacesPage({ sites, totalSites, allSites, search, setSearch, statusFilt
   const draftCount = allSites.length - activeCount;
   return (
     <section className="panel places-panel">
-      <div className="places-summary"><div><strong>{totalSites} di tích</strong><span> từ Backend</span></div><div className="summary-status"><span><i /> {activeCount} đang hoạt động</span><span className="draft-summary"><i /> {draftCount} bản nháp</span></div></div>
       <div className="table-toolbar">
         <div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên di tích, địa chỉ..." /></div>
         <label className="filter-select"><Filter size={15} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Tất cả trạng thái</option><option>Đang hoạt động</option><option>Bản nháp</option></select><ChevronDown size={14} /></label>
