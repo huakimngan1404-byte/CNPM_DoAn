@@ -1,4 +1,4 @@
-import { Linking } from 'react-native';
+import { AppState, Linking } from 'react-native';
 import * as Location from 'expo-location';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -18,6 +18,7 @@ import {
 import { languages, sites } from './src/data/heritage.js';
 import {
   apiBaseUrl, fetchNearbySites, fetchSiteAudio, fetchSites,
+  heartbeatVisitor, leaveVisitor,
 } from './src/services/api.js';
 import MapCanvas from './src/components/MapCanvas';
 import { translateUiText } from './src/i18n.js';
@@ -53,7 +54,17 @@ const tabs = [
   { key: 'profile', label: 'Cá nhân', icon: Settings },
 ];
 
+function createVisitorSessionId() {
+  return globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+      const value = Math.floor(Math.random() * 16);
+      return (character === 'x' ? value : (value & 0x3) | 0x8).toString(16);
+    });
+}
+
 export default function App() {
+  const [visitorSessionId] = useState(createVisitorSessionId);
   const [activeTab, setActiveTab] = useState('home');
   const [screen, setScreen] = useState('main');
   const [selectedSite, setSelectedSite] = useState(sites[0]);
@@ -96,6 +107,48 @@ export default function App() {
       return matchesCategory && matchesQuery;
     });
   }, [category, search, siteList]);
+
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      if (Platform.OS === 'web' && document.visibilityState === 'hidden') return;
+      if (Platform.OS !== 'web' && AppState.currentState && AppState.currentState !== 'active') return;
+      heartbeatVisitor(visitorSessionId).catch((error) => {
+        console.error('Không thể cập nhật phiên truy cập:', error);
+      });
+    };
+    const leave = () => {
+      leaveVisitor(visitorSessionId).catch((error) => {
+        console.error('Không thể kết thúc phiên truy cập:', error);
+      });
+    };
+    const appStateSubscription = Platform.OS !== 'web'
+      ? AppState.addEventListener('change', (state) => {
+        if (state === 'active') sendHeartbeat();
+        else leave();
+      })
+      : null;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') sendHeartbeat();
+      else leave();
+    };
+    const onPageHide = () => leave();
+    if (Platform.OS === 'web') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+      window.addEventListener('pagehide', onPageHide);
+    }
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 15000);
+    return () => {
+      clearInterval(interval);
+      appStateSubscription?.remove();
+      if (Platform.OS === 'web') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('pagehide', onPageHide);
+      }
+      leave();
+    };
+  }, [visitorSessionId]);
 
 // Theo dõi GPS thật và tự phát audio khi vừa vào vùng 50 m của một di tích.
 useEffect(() => {

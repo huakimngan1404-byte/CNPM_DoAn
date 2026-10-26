@@ -1,17 +1,45 @@
+import asyncio
 import math
 import pika
 import json
+import time
 from data.site_repository import SiteRepository
+
+ACTIVE_VISITOR_TTL_SECONDS = 45
+
 
 class SiteService:
     def __init__(self):
         self.repo = SiteRepository()
         self.catalog_seeded = False
+        self.active_visitors = {}
+        self.visitor_lock = asyncio.Lock()
 
     async def ensure_catalog_seeded(self):
         if not self.catalog_seeded:
             await self.repo.seed_default_sites()
             self.catalog_seeded = True
+
+    async def heartbeat_visitor(self, session_id: str):
+        async with self.visitor_lock:
+            self.active_visitors[session_id] = time.monotonic()
+
+    async def leave_visitor(self, session_id: str):
+        async with self.visitor_lock:
+            self.active_visitors.pop(session_id, None)
+
+    async def get_active_visitor_count(self):
+        now = time.monotonic()
+        cutoff = now - ACTIVE_VISITOR_TTL_SECONDS
+        async with self.visitor_lock:
+            expired_sessions = [
+                session_id
+                for session_id, last_seen in self.active_visitors.items()
+                if last_seen <= cutoff
+            ]
+            for session_id in expired_sessions:
+                del self.active_visitors[session_id]
+            return len(self.active_visitors)
 
     # Yêu cầu 3.2: Thuật toán cốt lõi tính toán khoảng cách (công thức hình học không gian) tại lớp Service
     def calculate_distance(self, lat1, lon1, lat2, lon2):

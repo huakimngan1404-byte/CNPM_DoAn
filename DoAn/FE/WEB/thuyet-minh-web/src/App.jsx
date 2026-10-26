@@ -13,9 +13,12 @@ import {
   createSite,
   deleteSite,
   fetchAdminSites,
+  fetchActiveVisitors,
   fetchRecentActivity,
   fetchSiteNarration,
   apiBaseUrl,
+  heartbeatVisitor,
+  leaveVisitor,
   loginAdmin,
   updateSite,
   updateAdminCredentials,
@@ -61,6 +64,15 @@ const supportedLanguages = [
 
 const adminAuthRequired = true;
 const adminTokenStorageKey = 'ditichq1-admin-token';
+
+function createVisitorSessionId() {
+  return globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+      const value = Math.floor(Math.random() * 16);
+      return (character === 'x' ? value : (value & 0x3) | 0x8).toString(16);
+    });
+}
 
 function App() {
   const params = new URLSearchParams(window.location.search);
@@ -326,8 +338,30 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
 function Dashboard({ sites, onNavigate }) {
   const activeCount = sites.filter((site) => site.status === 'Đang hoạt động').length;
   const narrationCount = sites.length * supportedLanguages.length;
+  const [activeVisitors, setActiveVisitors] = useState(null);
+  const [visitorError, setVisitorError] = useState('');
   const [recentActivity, setRecentActivity] = useState([]);
   const [activityError, setActivityError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const refreshActiveVisitors = async () => {
+      try {
+        const count = await fetchActiveVisitors();
+        if (!active) return;
+        setActiveVisitors(count);
+        setVisitorError('');
+      } catch (error) {
+        if (active) setVisitorError(error.message);
+      }
+    };
+    refreshActiveVisitors();
+    const interval = window.setInterval(refreshActiveVisitors, 10000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -365,6 +399,7 @@ function Dashboard({ sites, onNavigate }) {
       </section>
 
       <section className="stats-grid">
+        <StatCard label="Người đang truy cập" value={activeVisitors === null ? '—' : String(activeVisitors)} change="TRỰC TIẾP" positive icon={Headphones} iconTone="blue" note={visitorError || 'Ứng dụng và trình duyệt đang hoạt động'} />
         <StatCard label="Điểm di tích" value={String(sites.length)} change={`${activeCount} đang hoạt động`} positive icon={MapPin} iconTone="orange" note="đồng bộ từ Backend" />
         <StatCard label="Bài thuyết minh" value={String(narrationCount)} change="có thể tạo audio" positive icon={AudioLines} iconTone="violet" note={`${sites.length} di tích × ${supportedLanguages.length} ngôn ngữ`} />
         <StatCard label="Ngôn ngữ hỗ trợ" value={String(supportedLanguages.length)} change="đồng bộ với Backend" positive icon={Globe2} iconTone="green" note="Việt · Anh · Nhật · Trung" />
@@ -479,6 +514,37 @@ function ListenerDemo({ siteCode, siteName }) {
   const selectedLanguageInfo = narrationLanguages.find(
     (language) => language.code === selectedLanguage,
   );
+
+  useEffect(() => {
+    const sessionId = createVisitorSessionId();
+
+    const sendHeartbeat = () => {
+      if (document.visibilityState === 'hidden') return;
+      heartbeatVisitor(sessionId).catch((error) => {
+        console.error('Không thể cập nhật phiên nghe trực tiếp:', error);
+      });
+    };
+    const leave = () => {
+      leaveVisitor(sessionId).catch((error) => {
+        console.error('Không thể kết thúc phiên nghe trực tiếp:', error);
+      });
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') sendHeartbeat();
+      else leave();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', leave);
+    sendHeartbeat();
+    const interval = window.setInterval(sendHeartbeat, 15000);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', leave);
+      leave();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;

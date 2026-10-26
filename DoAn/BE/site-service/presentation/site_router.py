@@ -1,9 +1,12 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from business.site_service import SiteService
 from presentation.auth_router import require_admin
 
 router = APIRouter(prefix="/api/sites")
+visitor_router = APIRouter(prefix="/api/visitors")
 service = SiteService()
 
 # --- MODEL REQUEST ---
@@ -12,6 +15,9 @@ class GPSData(BaseModel):
     lat: float
     lng: float
     lang: str = "vi"
+
+class VisitorSession(BaseModel):
+    session_id: UUID
 
 class SiteAdminForm(BaseModel):
     code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -33,6 +39,18 @@ class SiteAdminUpdate(BaseModel):
     is_active: bool = True
 
 # --- CONTROLLERS ---
+
+@visitor_router.post("/heartbeat", status_code=204)
+async def heartbeat_visitor(data: VisitorSession):
+    await service.heartbeat_visitor(str(data.session_id))
+
+@visitor_router.post("/leave", status_code=204)
+async def leave_visitor(data: VisitorSession):
+    await service.leave_visitor(str(data.session_id))
+
+@visitor_router.get("/active", dependencies=[Depends(require_admin)])
+async def get_active_visitors():
+    return {"active_visitors": await service.get_active_visitor_count()}
 
 @router.post("/sync-location")
 async def sync_location(data: GPSData):

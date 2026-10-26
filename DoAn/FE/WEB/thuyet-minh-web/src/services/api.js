@@ -7,6 +7,23 @@ export const apiBaseUrl = (configuredApiUrl && !/^https?:\/\//i.test(configuredA
 
 const adminTokenStorageKey = 'ditichq1-admin-token';
 
+export async function heartbeatVisitor(sessionId) {
+  await requestSite('/api/visitors/heartbeat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export async function leaveVisitor(sessionId) {
+  await requestSite('/api/visitors/leave', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session_id: sessionId }),
+    keepalive: true,
+  });
+}
+
 function withAdminToken(options = {}) {
   const token = sessionStorage.getItem(adminTokenStorageKey);
   if (!token) return options;
@@ -156,6 +173,14 @@ export async function fetchRecentActivity() {
     throw new Error('Backend trả về lịch sử hoạt động không hợp lệ.');
   }
   return records;
+}
+
+export async function fetchActiveVisitors() {
+  const result = await requestSite('/api/visitors/active', {}, true);
+  if (!Number.isInteger(result?.active_visitors) || result.active_visitors < 0) {
+    throw new Error('Backend trả về số người truy cập trực tiếp không hợp lệ.');
+  }
+  return result.active_visitors;
 }
 
 function toSitePayload(site) {

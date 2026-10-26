@@ -112,7 +112,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .art-pin { position: absolute; top: 42px; right: 62px; display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50% 50% 50% 0; color: #fff; background: var(--accent); box-shadow: 0 4px 8px #a84d3938; transform: rotate(-45deg); }
 .art-pin svg { transform: rotate(45deg); }
 
-.stats-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px; }
+.stats-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
 .stat-card, .panel { border: 1px solid #e9ebef; border-radius: 9px; background: #fff; box-shadow: 0 2px 5px #1f293708; }
 .stat-card { position: relative; min-height: 126px; padding: 15px 15px 13px; }
 .stat-icon { display: grid; width: 32px; height: 32px; margin-bottom: 11px; place-items: center; border-radius: 8px; }

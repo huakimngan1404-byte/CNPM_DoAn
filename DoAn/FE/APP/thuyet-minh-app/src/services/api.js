@@ -26,6 +26,7 @@ const translationBaseUrl = translationUrl.origin;
 export const apiBaseUrl = normalizedApiOrigin.endsWith('/api/sites')
     ? normalizedApiOrigin
     : `${normalizedApiOrigin}/api/sites`;
+const apiOrigin = normalizedApiOrigin.replace(/\/api\/sites\/?$/, '');
 
 const parseResponse = async (response) => {
     if (!response.ok) {
@@ -33,6 +34,22 @@ const parseResponse = async (response) => {
     }
     return response.json();
 };
+
+const updateVisitorSession = async (action, sessionId, keepalive = false) => {
+    const response = await fetch(`${apiOrigin}/api/visitors/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId }),
+        keepalive,
+    });
+    if (!response.ok) {
+        throw new Error(`Backend trả về lỗi HTTP ${response.status} khi cập nhật phiên truy cập.`);
+    }
+};
+
+export const heartbeatVisitor = (sessionId) => updateVisitorSession('heartbeat', sessionId);
+
+export const leaveVisitor = (sessionId) => updateVisitorSession('leave', sessionId, true);
 
 export const fetchSites = async () => {
     const response = await fetch(apiBaseUrl);
