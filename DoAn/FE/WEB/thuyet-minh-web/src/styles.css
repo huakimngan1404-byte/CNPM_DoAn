@@ -532,3 +532,38 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
     .listener-card > p { font-size: 11px; }
     .listener-session-state { align-items: flex-start; text-align: left; }
   }
+
+  /* Cấu trúc chia đôi màn hình */
+.dashboard-main-layout {
+  display: flex;
+  gap: 24px;
+  align-items: stretch; /* SỬA TẠI ĐÂY: Dùng stretch để ép 2 cột luôn cao bằng nhau */
+  width: 100%;
+}
+
+/* Cột bên trái chiếm 2/3 diện tích */
+.dashboard-left-column {
+  flex: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Cột bên phải chiếm 1/3 diện tích */
+.dashboard-right-column {
+  flex: 1;
+  display: flex; /* Thêm flex để điều khiển chiều cao bên trong */
+  flex-direction: column;
+}
+
+/* Ép panel bên phải giãn ra lấp đầy toàn bộ cột */
+.dashboard-right-column .top-places-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Tùy chọn thêm: Đẩy nút "Xem tất cả di tích" xuống sát đáy panel cho đẹp */
+.dashboard-right-column .top-places-panel .panel-link {
+  margin-top: auto;
+}
