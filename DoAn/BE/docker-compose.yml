@@ -22,6 +22,7 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       MYMEMORY_EMAIL: ${MYMEMORY_EMAIL:-}
     volumes:
       - audio_data:/app/static/audio

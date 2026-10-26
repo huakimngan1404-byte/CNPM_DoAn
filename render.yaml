@@ -24,6 +24,8 @@ services:
         sync: false
       - key: MONGO_DATABASE
         value: district1_historical_db
+      - key: DEEPSEEK_API_KEY
+        sync: false
 
   - type: web
     name: quan1-web

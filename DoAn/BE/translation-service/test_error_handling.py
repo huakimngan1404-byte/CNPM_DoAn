@@ -397,6 +397,7 @@ class TestAITranslationFlow:
         service.ai_translator._ai_groq = AsyncMock(return_value=None)
         service.ai_translator._ai_openrouter = AsyncMock(return_value=None)
         service.ai_translator._ai_mistral = AsyncMock(return_value=None)
+        service.ai_translator._ai_deepseek = AsyncMock(return_value=None)
         service.ai_translator._google_gtx_direct = AsyncMock(return_value=None)
 
         result = await service.translate_text_async(
@@ -411,7 +412,13 @@ class TestAITranslationFlow:
     @pytest.mark.asyncio
     async def test_free_translation_fallback_runs_when_ai_providers_fail(self):
         service = TTSService(cache_dir="static/audio")
-        for provider in ("_ai_gemini", "_ai_groq", "_ai_openrouter", "_ai_mistral"):
+        for provider in (
+            "_ai_gemini",
+            "_ai_groq",
+            "_ai_openrouter",
+            "_ai_mistral",
+            "_ai_deepseek",
+        ):
             setattr(service.ai_translator, provider, AsyncMock(return_value=None))
         service.ai_translator._google_gtx_direct = AsyncMock(
             return_value="Free fallback translated"
@@ -424,6 +431,24 @@ class TestAITranslationFlow:
 
         assert result == "Free fallback translated"
         service.ai_translator._google_gtx_direct.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_deepseek_translation_is_used_before_free_fallbacks(self):
+        service = TTSService(cache_dir="static/audio")
+        for provider in ("_ai_gemini", "_ai_groq", "_ai_openrouter", "_ai_mistral"):
+            setattr(service.ai_translator, provider, AsyncMock(return_value=None))
+        service.ai_translator._ai_deepseek = AsyncMock(return_value="DeepSeek translated")
+        service.ai_translator._google_gtx_direct = AsyncMock(return_value=None)
+
+        result = await service.translate_text_async("Unique DeepSeek test text", "fr")
+
+        assert result == "DeepSeek translated"
+        service.ai_translator._ai_deepseek.assert_awaited_once_with(
+            "Unique DeepSeek test text",
+            "vi",
+            "fr",
+        )
+        service.ai_translator._google_gtx_direct.assert_not_awaited()
 
 
 class TestRetryLogic:

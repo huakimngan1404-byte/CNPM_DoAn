@@ -247,11 +247,12 @@ class AudioService:
         self.audio_dir = audio_dir
         os.makedirs(self.audio_dir, exist_ok=True)
 
-        # Đọc API Keys của 4 AI từ biến môi trường (có key nào chạy key đó)
+        # Đọc API keys từ biến môi trường (provider nào có key thì provider đó chạy)
         self.gemini_api_key = os.getenv("GEMINI_API_KEY", "")
         self.groq_api_key = os.getenv("GROQ_API_KEY", "")
         self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY", "")
         self.mistral_api_key = os.getenv("MISTRAL_API_KEY", "")
+        self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
         self.mymemory_email = os.getenv("MYMEMORY_EMAIL", "")
 
     def _get_hash(self, text: str, target_lang: str) -> str:
@@ -392,6 +393,33 @@ class AudioService:
             logger.warning(f"[Mistral] Lỗi dịch: {e}")
         return None
 
+    async def _ai_deepseek(self, text: str, source_lang: str, target_lang: str) -> Optional[str]:
+        if not self.deepseek_api_key:
+            return None
+        url = "https://api.deepseek.com/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.deepseek_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": self._build_prompt(source_lang, target_lang)},
+                {"role": "user", "content": text},
+            ],
+            "temperature": 0.2,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers, json=payload, timeout=15) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return data["choices"][0]["message"]["content"].strip()
+                    logger.warning("[DeepSeek] Translation request failed with status %s", resp.status)
+        except Exception as e:
+            logger.warning("[DeepSeek] Translation request failed (%s)", type(e).__name__)
+        return None
+
     # ---------------- 4 FREE FALLBACK TRANSLATORS ----------------
 
     async def _google_gtx_direct(self, chunk: str, source_lang: str, target_lang: str) -> Optional[str]:
@@ -464,8 +492,14 @@ class AudioService:
         if cache_key in _TRANSLATION_CACHE:
             return _TRANSLATION_CACHE[cache_key]
 
-        # Thử dịch qua 4 AI trước
-        for ai_func in (self._ai_gemini, self._ai_groq, self._ai_openrouter, self._ai_mistral):
+        # Thử dịch qua các AI trước
+        for ai_func in (
+            self._ai_gemini,
+            self._ai_groq,
+            self._ai_openrouter,
+            self._ai_mistral,
+            self._ai_deepseek,
+        ):
             result = await ai_func(text, source_lang, target_lang)
             if result:
                 _TRANSLATION_CACHE[cache_key] = result
