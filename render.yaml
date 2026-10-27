@@ -5,6 +5,7 @@ services:
     plan: free
     rootDir: DoAn/BE/site-service
     dockerfilePath: ./Dockerfile
+    autoDeploy: false
     healthCheckPath: /health
     envVars:
       - key: MONGO_URI
@@ -18,6 +19,7 @@ services:
     plan: free
     rootDir: DoAn/BE/translation-service
     dockerfilePath: ./Dockerfile
+    autoDeploy: false
     healthCheckPath: /health
     envVars:
       - key: MONGO_URI
@@ -33,6 +35,7 @@ services:
     rootDir: DoAn/FE/APP/thuyet-minh-app
     buildCommand: npm ci && npx expo export --platform web
     staticPublishPath: dist
+    autoDeploy: false
     envVars:
       - key: EXPO_PUBLIC_API_URL
         value: https://quan1-site-service-a1vt.onrender.com
@@ -49,6 +52,7 @@ services:
     rootDir: DoAn/FE/WEB/thuyet-minh-web
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
+    autoDeploy: false
     envVars:
       - key: VITE_API_URL
         value: https://quan1-site-service-a1vt.onrender.com
