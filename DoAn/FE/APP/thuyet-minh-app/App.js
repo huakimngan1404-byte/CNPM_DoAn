@@ -686,7 +686,7 @@ function ApiStatusBanner({ loading, error, apiUrl, onRetry }) {
   );
 }
 
-function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr, onSearch, onOpenSite, onSave, onMap, onSeeAll, onNearby }) {
+function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch, onOpenSite, onSave, onMap, onSeeAll, onNearby }) {
   const [slide, setSlide] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
   const carouselRef = useRef(null);
@@ -710,23 +710,22 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
     const next = Math.round(event.nativeEvent.contentOffset.x / carouselWidth);
     setSlide(next);
   };
-  const showNextFeatured = () => {
-    if (!carouselWidth || !featured.length) return;
-    const nextSlide = (slide + 1) % featured.length;
-    setSlide(nextSlide);
-    carouselRef.current?.scrollTo({ x: nextSlide * carouselWidth, animated: true });
-  };
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={Platform.OS === 'web'}>
-      <AppHeader language={language} onLanguage={onLanguage} onShowQr={onShowQr} />
-      <Pressable style={styles.searchLauncher} onPress={onSearch}>
+      <AppHeader language={language} onLanguage={onLanguage} />
+      
+      <Pressable style={[styles.searchLauncher, { marginTop: 20 }]} onPress={onSearch}>
         <Search size={18} color="#99928D" /><Text style={styles.searchPlaceholder}>Bạn muốn khám phá nơi nào?</Text><View style={styles.searchTuning}><SlidersHorizontal size={15} color="#736E69" /></View>
       </Pressable>
 
       <View style={styles.sectionHeading}>
-        <View><View style={styles.sectionEyebrow}><Sparkles size={12} color={accent} /><Text style={styles.sectionEyebrowText}>CHẠM VÀO LỊCH SỬ</Text></View><Text style={styles.sectionTitle}>Dạo quanh Quận 1</Text></View>
+        <View>
+          <Text style={styles.sectionTitle}>Dạo quanh Quận 1</Text>
+        </View>
         <Pressable onPress={onSeeAll} style={styles.seeAll}><Text style={styles.seeAllText}>Tất cả</Text><ArrowRight size={14} color={accent} /></Pressable>
       </View>
+      
       {!!featured.length && <View
         style={styles.featuredCarouselViewport}
         onLayout={(event) => {
@@ -755,11 +754,11 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
               saved={savedIds.includes(site.id)}
               onOpen={() => onOpenSite(site)}
               onSave={() => onSave(site)}
-              onNext={showNextFeatured}
             />
           ))}
         </ScrollView>
       </View>}
+      
       {!!featured.length && <View style={styles.carouselMeta}>
         <View style={styles.carouselDots}>{featured.map((item, index) => <View key={item.id} style={[styles.carouselDot, slide === index && styles.carouselDotActive]} />)}</View>
         <Text style={styles.carouselCounter}>0{slide + 1}<Text style={styles.counterMuted}> / 0{featured.length}</Text></Text>
@@ -768,8 +767,10 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
       {!featured.length && <View style={styles.noSitesCard}><Text style={styles.noSitesText}>Chưa có di tích phù hợp trong dữ liệu từ BE.</Text></View>}
 
       <View style={styles.sectionHeading}>
-        <View><Text style={styles.sectionTitle}>Điểm đến quanh bạn</Text><Text style={styles.sectionSub}>Những câu chuyện chỉ cách bạn vài bước chân</Text></View>
-</View> 
+        <View>
+          <Text style={styles.sectionTitle}>Điểm đến quanh bạn</Text>
+        </View>
+      </View> 
       
       <ScrollView {...nearbyDrag} horizontal showsHorizontalScrollIndicator={false} onWheel={Platform.OS === 'web' ? scrollHorizontallyWithWheel : undefined} contentContainerStyle={styles.horizontalCards}>
         {siteList.slice(1, 5).map((site) => <MiniPlaceCard key={site.id} site={site} onPress={() => onOpenSite(site)} />)}
@@ -780,21 +781,25 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
         <View style={styles.nearbyBannerCopy}>
           <View style={styles.livePill}>
             <View style={styles.liveDot} />
-            <Text style={styles.livePillText}>THUYẾT MINH TỰ ĐỘNG
-              </Text></View><Text style={styles.nearbyCopy}>Bật vị trí để tìm di tích gần nhất.</Text><Pressable style={styles.nearbyButton} onPress={onNearby}><LocateFixed size={14} color="#fff" /><Text style={styles.nearbyButtonText}>Tìm quanh đây</Text></Pressable></View>
+            <Text style={styles.livePillText}>THUYẾT MINH TỰ ĐỘNG</Text>
+          </View>
+          <Text style={styles.nearbyCopy}>Bật vị trí để tìm di tích gần nhất.</Text>
+          <Pressable style={styles.nearbyButton} onPress={onNearby}><LocateFixed size={14} color="#fff" /><Text style={styles.nearbyButtonText}>Tìm quanh đây</Text></Pressable>
+        </View>
         <View style={styles.nearbyIllustration}><View style={styles.glowCircle} /><BuildingIllustration color="#C9A37B" /></View>
       </View>
+      
       <View style={styles.homeFooter}><ShieldMark /><Text>Khám phá di sản · Lắng nghe câu chuyện</Text></View>
     </ScrollView>
   );
 }
 
-function FeaturedCard({ site, index, width, saved, onOpen, onSave, onNext }) {
+function FeaturedCard({ site, index, width, saved, onOpen, onSave }) {
   const palettes = [['#312723', '#91654B', '#E2B78B'], ['#243135', '#617A70', '#B6C1A7'], ['#32302B', '#88735D', '#D3B58F']];
   const colors = palettes[index % palettes.length];
   return (
     <Pressable onPress={onOpen} style={[styles.featuredCard, { width }]}>
-      <ImageBackground source={site.image ? { uri: site.image } : null} resizeMode="cover" style={StyleSheet.absoluteFill} imageStyle={styles.featuredImage}>
+      <ImageBackground source={site.image} resizeMode="cover" style={StyleSheet.absoluteFill} imageStyle={styles.featuredImage}>
         <LinearGradient colors={['#15141218', '#17151400', '#151412E8']} locations={[0, 0.36, 1]} style={StyleSheet.absoluteFill} />
       </ImageBackground>
       <View style={styles.photoTint}><LinearGradient colors={[`${colors[0]}88`, `${colors[1]}66`, `${colors[2]}22`]} style={StyleSheet.absoluteFill} /><BuildingIllustration color={colors[2]} large /></View>
@@ -812,23 +817,12 @@ function FeaturedCard({ site, index, width, saved, onOpen, onSave, onNext }) {
             <View style={styles.featuredDuration}><Clock3 size={12} color="#fff" />
             <Text style={styles.featuredDurationText}>{site.duration}
               </Text></View>
-              <Pressable
-                style={styles.featuredArrow}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  onNext();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Xem di tích tiếp theo"
-              >
-                <ArrowRight size={17} color="#fff" />
-              </Pressable>
-            </View>
+              <View style={styles.featuredArrow}><ArrowRight size={17} color="#fff" />
+              </View></View>
       </View>
     </Pressable>
   );
 }
-
 function BuildingIllustration({ color = '#C9A37B', large = false, style }) {
   return (
     <View style={[styles.buildingArt, large && styles.buildingArtLarge, style]} pointerEvents="none">
@@ -850,7 +844,29 @@ function MiniPlaceCard({ site, onPress }) {
   const paint = Array.isArray(site.paint) && site.paint.length >= 3
     ? site.paint
     : ['#312723', '#91654B', '#E2B78B'];
-  return <Pressable style={styles.miniPlaceCard} onPress={onPress}><View style={[styles.miniArtwork, { backgroundColor: paint[0] }]}><LinearGradient colors={paint} style={StyleSheet.absoluteFill} /><BuildingIllustration color={paint[2]} /><View style={styles.miniDistance}><Navigation size={9} color="#fff" /><Text style={styles.miniDistanceText}>{site.distance || 'Quận 1'}</Text></View></View><View style={styles.miniPlaceInfo}><Text numberOfLines={1} style={styles.miniPlaceTitle}>{site.name}</Text><Text style={styles.miniPlaceCategory}>{site.category || 'Điểm tham quan'}</Text><View style={styles.miniAudio}><Headphones size={11} color={accent} /><Text>{site.duration ? `${site.duration} thuyết minh` : 'Thuyết minh'}</Text></View></View></Pressable>;
+  
+  return (
+    <Pressable style={styles.miniPlaceCard} onPress={onPress}>
+      <View style={[styles.miniArtwork, { backgroundColor: paint[0] }]}>
+        {site.image ? (
+          <ImageBackground source={site.image} style={StyleSheet.absoluteFill} resizeMode="cover">
+            <LinearGradient colors={[`${paint[0]}88`, `${paint[1]}55`, `${paint[2]}22`]} style={StyleSheet.absoluteFill} />
+          </ImageBackground>
+        ) : (
+          <>
+            <LinearGradient colors={paint} style={StyleSheet.absoluteFill} />
+            <BuildingIllustration color={paint[2]} />
+          </>
+        )}
+        <View style={styles.miniDistance}><Navigation size={9} color="#fff" /><Text style={styles.miniDistanceText}>{site.distance || 'Quận 1'}</Text></View>
+      </View>
+      <View style={styles.miniPlaceInfo}>
+        <Text numberOfLines={1} style={styles.miniPlaceTitle}>{site.name}</Text>
+        <Text style={styles.miniPlaceCategory}>{site.category || 'Điểm tham quan'}</Text>
+        <View style={styles.miniAudio}><Headphones size={11} color={accent} /><Text>{site.duration ? `${site.duration} thuyết minh` : 'Thuyết minh'}</Text></View>
+      </View>
+    </Pressable>
+  );
 }
 
 function ExploreScreen({ language, search, setSearch, category, setCategory, sites: list, savedIds, onLanguage, onOpenSite, onSave }) {
@@ -871,19 +887,16 @@ function ExploreScreen({ language, search, setSearch, category, setCategory, sit
 function ExploreCard({ site, index, saved, onPress, onSave }) {
   if (!site) return null;
 
-  // 1. Kiểm tra mảng màu thật chặt chẽ (Phải là mảng và có ít nhất 2 màu)
   let safePaint = ['#F04D2E', '#E04124', '#C9361C'];
   if (Array.isArray(site.paint) && site.paint.length >= 2 && site.paint[0]) {
       safePaint = site.paint;
   }
 
-  // 2. Kiểm tra mảng ngôn ngữ
   let safeLangs = ['vi'];
   if (Array.isArray(site.languages) && site.languages.length > 0) {
       safeLangs = site.languages;
   }
 
-  // 3. Đóng gói dữ liệu an toàn
   const safeSite = {
     ...site,
     name: site.name || 'Đang cập nhật',
@@ -898,9 +911,16 @@ function ExploreCard({ site, index, saved, onPress, onSave }) {
   return (
     <Pressable onPress={onPress} style={styles.exploreCard}>
       <View style={[styles.exploreArtwork, { backgroundColor: safeSite.paint[0] }]}>
-        {/* Điểm chết đã được bọc an toàn tuyệt đối */}
-        <LinearGradient colors={safeSite.paint} style={StyleSheet.absoluteFill} />
-        <BuildingIllustration color={safeSite.paint[2] || '#ffffff'} />
+        {safeSite.image ? (
+          <ImageBackground source={safeSite.image} style={StyleSheet.absoluteFill} resizeMode="cover">
+            <LinearGradient colors={[`${safeSite.paint[0]}88`, `${safeSite.paint[1]}66`, `${safeSite.paint[2]}22`]} style={StyleSheet.absoluteFill} />
+          </ImageBackground>
+        ) : (
+          <>
+            <LinearGradient colors={safeSite.paint} style={StyleSheet.absoluteFill} />
+            <BuildingIllustration color={safeSite.paint[2] || '#ffffff'} />
+          </>
+        )}
         <Text style={styles.artNumber}>0{index + 1}</Text>
       </View>
       
@@ -925,7 +945,6 @@ function ExploreCard({ site, index, saved, onPress, onSave }) {
           <View style={styles.langFlags}>
             {safeSite.languages.slice(0, 3).map((code) => (
               <Text key={code} style={styles.langFlag}>
-                {/* Lấy cờ từ danh sách languages (đảm bảo file heritage.js đã có cờ) */}
                 {(languages && languages.find((item) => item.id === code)?.flag) || '🌐'}
               </Text>
             ))}
@@ -948,7 +967,7 @@ function DetailScreen({ site, sites: siteList, language, playing, audioLoading, 
         color: site.color || '#F04D2E',
         // Thêm mảng màu paint mặc định để UI không bị sập
         paint: site.paint || ['#312723', '#91654B', '#E2B78B'], 
-        image: site.image || 'https://images.unsplash.com/photo-1583417311718-c9c049e3c907?w=500',
+        image: site.image, // Đã xóa link mạng dự phòng để ưu tiên 100% ảnh thật
         // Thêm các thông tin cơ bản phòng khi BE chưa trả về
         category: site.category || 'Di tích lịch sử',
         distance: site.distance || 'Đang cập nhật',
@@ -960,18 +979,21 @@ function DetailScreen({ site, sites: siteList, language, playing, audioLoading, 
   return <View style={styles.detailRoot}>
     <ScrollView showsVerticalScrollIndicator={Platform.OS === 'web'} contentContainerStyle={styles.detailScroll}>
       <View style={[styles.detailHero, { backgroundColor: site.paint[0] }]}>
-        <ImageBackground source={{ uri: site.image }} style={StyleSheet.absoluteFill} imageStyle={styles.detailImage}>
+        
+        {/* Đã sửa dòng dưới đây thành ảnh Local */}
+        <ImageBackground source={site.image} style={StyleSheet.absoluteFill} imageStyle={styles.detailImage}>
           <LinearGradient colors={[`${site.paint[0]}55`, `${site.paint[1]}75`, `${site.paint[0]}F0`]} style={StyleSheet.absoluteFill} />
         </ImageBackground>
-        <BuildingIllustration color={site.paint[2]} large style={styles.detailBuildingArt} />
+        
+        <BuildingIllustration color={site.paint[2]} large />
         <View style={styles.detailTopBar}><Pressable style={styles.detailRound} onPress={onBack}><ArrowLeft size={19} color="#fff" /></Pressable><View style={styles.detailTopActions}><Pressable style={styles.detailRound} onPress={onSave}><Bookmark size={17} color="#fff" fill={isSaved ? '#fff' : 'transparent'} /></Pressable><Pressable style={styles.detailRound} onPress={() => {}}><MoreHorizontal size={19} color="#fff" /></Pressable></View></View>
-        <View style={styles.detailHeroBottom}><View style={[styles.featuredTag, styles.detailHeroTag]}><Sparkles size={11} color="#fff" /><Text style={styles.featuredTagText}>{site.category.toUpperCase()}</Text></View><Text style={styles.detailHeroTitle}>{site.name}</Text><View style={styles.detailHeroAddress}><MapPin size={13} color="#eee" /><Text style={styles.detailHeroAddressText}>{site.address} · {site.distance}</Text></View></View>
+        <View style={styles.detailHeroBottom}><View style={styles.featuredTag}><Sparkles size={11} color="#fff" /><Text style={styles.featuredTagText}>{site.category.toUpperCase()}</Text></View><Text style={styles.detailHeroTitle}>{site.name}</Text><View style={styles.detailHeroAddress}><MapPin size={13} color="#eee" /><Text style={styles.detailHeroAddressText}>{site.address} · {site.distance}</Text></View></View>
       </View>
       <View style={styles.detailContent}>
         <View style={styles.detailAudioCard}>
           <View style={styles.audioCardTop}><View style={styles.audioLangRow}><View style={styles.audioLangIcon}><Text>{language.flag}</Text></View><View><Text style={styles.audioLangName}>{language.name}</Text><Text style={styles.audioVoice}>{voiceLabel(language.id)}</Text></View></View><Pressable style={styles.audioChangeLang} onPress={onLanguage}><Languages size={15} color="#756E68" /><ChevronDown size={12} color="#756E68" /></Pressable></View>
           <View style={styles.audioTrack}><View style={styles.audioTimeRow}><Text style={styles.audioTimeCurrent}>{formatDuration(elapsed)}</Text><Text style={styles.audioTimeText}>{duration > 0 ? formatDuration(duration) : '--:--'}</Text></View><View style={styles.audioProgress}><View style={[styles.audioProgressFill, { width: progress }]} /><View style={[styles.audioKnob, { left: progress }]} /></View></View>
-          <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{audioLoading ? <ActivityIndicator size="small" color="#fff" /> : playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable></View>
+          <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{audioLoading ? <ActivityIndicator size="small" color="#fff" /> : playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable><View style={styles.speedPill}><Text>1x</Text></View></View>
           {!!audioError && <Text style={styles.audioPlaybackError}>{audioError}</Text>}
         </View>
         <View style={styles.detailStoryHeader}><View><Text style={styles.storyEyebrow}>CÂU CHUYỆN DI SẢN</Text><Text style={styles.storyTitle}>Lắng nghe lịch sử</Text></View><Pressable style={styles.shareButton} onPress={() => {}}><Share2 size={16} color="#6E6964" /></Pressable></View>
