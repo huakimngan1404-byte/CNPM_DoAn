@@ -1,6 +1,6 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 MONGO_URL = (
     os.getenv("MONGO_URI")
@@ -88,6 +88,67 @@ DEFAULT_SITES = (
 
 
 class SiteRepository:
+    async def record_listen(self, site_code: str, language: str, device: str):
+        await db.listening_events.insert_one({
+            "site_code": site_code,
+            "language": language,
+            "device": device,
+            "occurred_at": datetime.now(timezone.utc),
+        })
+
+    async def get_listen_stats(self, start, end, period: str, device: str):
+        filters = {"occurred_at": {"$gte": start, "$lt": end}}
+        if device != "all":
+            filters["device"] = device
+
+        bucket_format = "%H" if period == "day" else "%d"
+        bucket_pipeline = [
+            {"$match": filters},
+            {
+                "$group": {
+                    "_id": {
+                        "$dateToString": {
+                            "format": bucket_format,
+                            "date": "$occurred_at",
+                            "timezone": "Asia/Ho_Chi_Minh",
+                        }
+                    },
+                    "count": {"$sum": 1},
+                }
+            },
+        ]
+        buckets = [item async for item in db.listening_events.aggregate(bucket_pipeline)]
+        total = sum(item["count"] for item in buckets)
+
+        site_pipeline = [
+            {"$match": filters},
+            {"$group": {"_id": "$site_code", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1, "_id": 1}},
+            {"$limit": 8},
+        ]
+        top_sites = [item async for item in db.listening_events.aggregate(site_pipeline)]
+        site_codes = [item["_id"] for item in top_sites]
+        site_names = {}
+        if site_codes:
+            cursor = db.sites.find(
+                {"code": {"$in": site_codes}},
+                {"_id": 0, "code": 1, "name": 1},
+            )
+            site_names = {site["code"]: site["name"] async for site in cursor}
+
+        return {
+            "total": total,
+            "buckets": buckets,
+            "top_sites": [
+                {
+                    "site_code": item["_id"],
+                    "site_name": site_names.get(item["_id"], item["_id"]),
+                    "count": item["count"],
+                }
+                for item in top_sites
+            ],
+        }
+
     async def get_all_sites(self):
         # Lấy tất cả các điểm tham quan để lớp Service tính Geofencing
         cursor = db.sites.find({})

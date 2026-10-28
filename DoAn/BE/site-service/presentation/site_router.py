@@ -1,4 +1,5 @@
 from uuid import UUID
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -7,6 +8,7 @@ from presentation.auth_router import require_admin
 
 router = APIRouter(prefix="/api/sites")
 visitor_router = APIRouter(prefix="/api/visitors")
+listen_router = APIRouter(prefix="/api/listens")
 service = SiteService()
 
 # --- MODEL REQUEST ---
@@ -18,6 +20,11 @@ class GPSData(BaseModel):
 
 class VisitorSession(BaseModel):
     session_id: UUID
+
+class ListenEvent(BaseModel):
+    site_code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    language: str = Field(min_length=2, max_length=10, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]+)*$")
+    device: Literal["web", "android", "ios"]
 
 class SiteAdminForm(BaseModel):
     code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -51,6 +58,25 @@ async def leave_visitor(data: VisitorSession):
 @visitor_router.get("/active", dependencies=[Depends(require_admin)])
 async def get_active_visitors():
     return {"active_visitors": await service.get_active_visitor_count()}
+
+@listen_router.post("/", status_code=201)
+async def record_listen(data: ListenEvent):
+    try:
+        await service.record_listen(data.site_code, data.language, data.device)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": "recorded"}
+
+@listen_router.get("/stats", dependencies=[Depends(require_admin)])
+async def get_listen_stats(
+    period: Literal["day", "month"] = "month",
+    date: str | None = None,
+    device: Literal["all", "web", "android", "ios"] = "all",
+):
+    try:
+        return await service.get_listen_stats(period, date, device)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 @router.post("/sync-location")
 async def sync_location(data: GPSData):

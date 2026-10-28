@@ -183,6 +183,27 @@ export async function fetchActiveVisitors() {
   return result.active_visitors;
 }
 
+export async function recordNarrationListen(siteCode, language, device = 'web') {
+  return requestSite('/api/listens/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      site_code: siteCode,
+      language,
+      device,
+    }),
+  });
+}
+
+export async function fetchListenStats(period, date, device = 'all') {
+  const query = new URLSearchParams({ period, date, device });
+  const result = await requestSite(`/api/listens/stats?${query}`, {}, true);
+  if (!Number.isInteger(result?.total) || !Array.isArray(result?.buckets) || !Array.isArray(result?.top_sites)) {
+    throw new Error('Backend trả về thống kê lượt nghe không hợp lệ.');
+  }
+  return result;
+}
+
 function toSitePayload(site) {
   return {
     name: site.name.trim(),

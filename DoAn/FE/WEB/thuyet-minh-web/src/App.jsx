@@ -14,12 +14,14 @@ import {
   deleteSite,
   fetchAdminSites,
   fetchActiveVisitors,
+  fetchListenStats,
   fetchRecentActivity,
   fetchSiteNarration,
   apiBaseUrl,
   heartbeatVisitor,
   leaveVisitor,
   loginAdmin,
+  recordNarrationListen,
   updateSite,
   updateAdminCredentials,
 } from './services/api.js';
@@ -359,6 +361,14 @@ function Dashboard({ sites, onNavigate }) {
   const [visitorError, setVisitorError] = useState('');
   const [recentActivity, setRecentActivity] = useState([]);
   const [activityError, setActivityError] = useState('');
+  const [listenPeriod, setListenPeriod] = useState('day');
+  const [listenDate, setListenDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
+  const [listenDevice, setListenDevice] = useState('all');
+  const [listenStats, setListenStats] = useState(null);
+  const [listenError, setListenError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -401,19 +411,56 @@ function Dashboard({ sites, onNavigate }) {
     };
   }, []);
 
-  // --- LOGIC MỚI CHO DI TÍCH NỔI BẬT ---
-  const topSitesData = [
-    { id: '1', title: 'Dinh Độc Lập', listens: 2846, tone: 'orange' },
-    { id: '2', title: 'Nhà thờ Đức Bà', listens: 2104, tone: 'blue' },
-    { id: '3', title: 'Bưu điện Trung tâm', listens: 1762, tone: 'green' },
-    { id: '4', title: 'Chợ Bến Thành', listens: 1420, tone: 'violet' },
-    { id: '5', title: 'Nhà hát Thành phố', listens: 1150, tone: 'orange' },
-    { id: '6', title: 'Bảo tàng TP.HCM', listens: 980, tone: 'blue' },
-    { id: '7', title: 'Trụ sở UBND Thành phố', listens: 840, tone: 'green' },
-    { id: '8', title: 'Bến Bạch Đằng', listens: 650, tone: 'violet' },
-  ];
-  const maxListens = topSitesData.length > 0 ? topSitesData[0].listens : 1;
-  // -------------------------------------
+  const requestedListenDate = listenPeriod === 'day' ? listenDate : listenDate.slice(0, 7);
+  useEffect(() => {
+    let active = true;
+    const refreshListenStats = async () => {
+      try {
+        const stats = await fetchListenStats(listenPeriod, requestedListenDate, listenDevice);
+        if (!active) return;
+        setListenStats(stats);
+        setListenError('');
+      } catch (error) {
+        if (!active) return;
+        setListenStats(null);
+        setListenError(error.message);
+      }
+    };
+
+    refreshListenStats();
+    const interval = window.setInterval(refreshListenStats, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [listenPeriod, requestedListenDate, listenDevice]);
+
+  const chartBuckets = listenStats?.buckets ?? [];
+  const chartMaximum = Math.max(1, ...chartBuckets.map((bucket) => bucket.count));
+  const chartPoints = chartBuckets.map((bucket, index) => ({
+    ...bucket,
+    x: chartBuckets.length <= 1 ? 360 : (index * 720) / (chartBuckets.length - 1),
+    y: 188 - (bucket.count / chartMaximum) * 172,
+  }));
+  const chartLine = chartPoints.map(({ x, y }) => `${x},${y}`).join(' ');
+  const chartArea = chartPoints.length
+    ? `0,204 ${chartLine} 720,204`
+    : '';
+  const chartLabelIndexes = chartPoints.length <= 5
+    ? chartPoints.map((_, index) => index)
+    : [0, Math.round((chartPoints.length - 1) / 4), Math.round((chartPoints.length - 1) / 2), Math.round(((chartPoints.length - 1) * 3) / 4), chartPoints.length - 1];
+  const chartLabels = [...new Set(chartLabelIndexes)].map((index) => chartPoints[index]);
+  const chartScale = [1, 0.75, 0.5, 0.25, 0].map((ratio) => Math.round(chartMaximum * ratio));
+  const topSitesData = (listenStats?.top_sites ?? []).map((site, index) => ({
+    id: site.site_code,
+    title: site.site_name,
+    listens: site.count,
+    tone: ['orange', 'blue', 'green', 'violet'][index % 4],
+  }));
+  const maxListens = Math.max(1, ...topSitesData.map((site) => site.listens));
+  const periodDescription = listenPeriod === 'day'
+    ? new Date(`${listenDate}T12:00:00`).toLocaleDateString('vi-VN')
+    : new Date(`${requestedListenDate}-01T12:00:00`).toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
 
   return (
     <div className="dashboard-content">
@@ -433,30 +480,63 @@ function Dashboard({ sites, onNavigate }) {
           <div className="panel listening-panel">
             <div className="panel-heading">
               <div><h3>Lượt nghe thuyết minh</h3><p>Thống kê hoạt động của người dùng</p></div>
-              <button className="select-button" onClick={() => {}}><span className="select-period-dot" /> 7 ngày qua <ChevronDown size={15} /></button>
-            </div>
-            <div className="chart-legend"><span className="legend-dot" /> Lượt nghe <span className="legend-period">01 — 07 Tháng 10, 2026</span></div>
-            <div className="chart-wrap">
-              <div className="chart-ylabels"><span>1.000</span><span>750</span><span>500</span><span>250</span><span>0</span></div>
-              <div className="chart-area">
-                <div className="chart-gridlines"><i /><i /><i /><i /><i /></div>
-                <svg viewBox="0 0 720 204" preserveAspectRatio="none" role="img" aria-label="Biểu đồ lượt nghe tăng dần trong 7 ngày">
-                  <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#ea5538" stopOpacity=".18" /><stop offset="100%" stopColor="#ea5538" stopOpacity="0" /></linearGradient></defs>
-                  <path d="M0 157 C35 145 48 149 74 136 S114 143 145 119 S190 123 218 111 S263 118 291 88 S340 99 365 82 S411 93 437 68 S478 84 510 62 S553 73 583 43 S625 55 654 33 S691 39 720 16 L720 204 L0 204 Z" fill="url(#chartFill)" />
-                  <path d="M0 157 C35 145 48 149 74 136 S114 143 145 119 S190 123 218 111 S263 118 291 88 S340 99 365 82 S411 93 437 68 S478 84 510 62 S553 73 583 43 S625 55 654 33 S691 39 720 16" fill="none" stroke="#e95a3f" strokeWidth="3" vectorEffect="non-scaling-stroke" />
-                  <circle cx="720" cy="16" r="5.5" fill="#fff" stroke="#e95a3f" strokeWidth="3" vectorEffect="non-scaling-stroke" />
-                </svg>
-                <div className="chart-xlabels"><span>T.2</span><span>T.3</span><span>T.4</span><span>T.5</span><span>T.6</span><span>T.7</span><span>CN</span></div>
+              <div className="listen-filters">
+                <select
+                  className="select-button"
+                  aria-label="Khoảng thời gian thống kê"
+                  value={listenPeriod}
+                  onChange={(event) => setListenPeriod(event.target.value)}
+                >
+                  <option value="day">Theo ngày</option>
+                  <option value="month">Theo tháng</option>
+                </select>
+                <input
+                  className="select-button listen-date-filter"
+                  aria-label={listenPeriod === 'day' ? 'Chọn ngày thống kê' : 'Chọn tháng thống kê'}
+                  type={listenPeriod === 'day' ? 'date' : 'month'}
+                  value={listenPeriod === 'day' ? listenDate : requestedListenDate}
+                  onChange={(event) => setListenDate(
+                    listenPeriod === 'day' ? event.target.value : `${event.target.value}-01`,
+                  )}
+                />
+                <select
+                  className="select-button"
+                  aria-label="Lọc theo thiết bị"
+                  value={listenDevice}
+                  onChange={(event) => setListenDevice(event.target.value)}
+                >
+                  <option value="all">Tất cả thiết bị</option>
+                  <option value="web">Website</option>
+                  <option value="android">Android</option>
+                  <option value="ios">iPhone / iPad</option>
+                </select>
               </div>
             </div>
-            <div className="chart-bottom"><span><ArrowUpRight size={15} /> <strong>12,8%</strong> tăng so với tuần trước</span><button onClick={() => {}}>Xem báo cáo <ArrowRight size={14} /></button></div>
+            <div className="chart-legend"><span className="legend-dot" /> Lượt nghe <span className="legend-period">{periodDescription}</span></div>
+            <div className="chart-wrap">
+              <div className="chart-ylabels">{chartScale.map((value, index) => <span key={index}>{value.toLocaleString('vi-VN')}</span>)}</div>
+              <div className="chart-area">
+                <div className="chart-gridlines"><i /><i /><i /><i /><i /></div>
+                <svg viewBox="0 0 720 204" preserveAspectRatio="none" role="img" aria-label={`Biểu đồ ${listenStats?.total ?? 0} lượt nghe`}>
+                  <defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#ea5538" stopOpacity=".18" /><stop offset="100%" stopColor="#ea5538" stopOpacity="0" /></linearGradient></defs>
+                  {chartArea && <polygon points={chartArea} fill="url(#chartFill)" />}
+                  {chartLine && <polyline points={chartLine} fill="none" stroke="#e95a3f" strokeWidth="3" vectorEffect="non-scaling-stroke" />}
+                  {chartPoints.length > 0 && <circle cx={chartPoints[chartPoints.length - 1].x} cy={chartPoints[chartPoints.length - 1].y} r="5.5" fill="#fff" stroke="#e95a3f" strokeWidth="3" vectorEffect="non-scaling-stroke" />}
+                </svg>
+                <div className="chart-xlabels">{chartLabels.map((bucket) => <span key={bucket.label}>{listenPeriod === 'day' ? bucket.label.slice(0, 2) : Number(bucket.label)}</span>)}</div>
+              </div>
+            </div>
+            <div className="chart-bottom">
+              <span>{listenError || `Tổng cộng ${listenStats?.total?.toLocaleString('vi-VN') ?? '—'} lượt nghe trong kỳ đã chọn.`}</span>
+              <span>{listenDevice === 'all' ? 'Mọi thiết bị' : listenDevice === 'web' ? 'Website' : listenDevice === 'android' ? 'Android' : 'iPhone / iPad'}</span>
+            </div>
           </div>
         </div>
 
         {/* CỘT PHẢI */}
         <div className="dashboard-right-column">
           <div className="panel top-places-panel">
-            <div className="panel-heading"><div><h3>Di tích nổi bật</h3><p>Được nghe nhiều nhất tuần này</p></div><button className="more-button" aria-label="Tùy chọn"><MoreHorizontal size={20} /></button></div>
+            <div className="panel-heading"><div><h3>Di tích nổi bật</h3><p>Được nghe nhiều nhất trong kỳ đã chọn</p></div><button className="more-button" aria-label="Tùy chọn"><MoreHorizontal size={20} /></button></div>
             
             {/* RENDER DANH SÁCH 8 DI TÍCH TỰ ĐỘNG */}
             <div className="top-place-list">
@@ -474,6 +554,7 @@ function Dashboard({ sites, onNavigate }) {
                   />
                 );
               })}
+              {topSitesData.length === 0 && <div className="empty-state"><AudioLines size={23} /><strong>Chưa có lượt nghe</strong><span>Dữ liệu sẽ xuất hiện khi có người bắt đầu nghe thuyết minh.</span></div>}
             </div>
 
             <button className="panel-link" onClick={() => onNavigate('places')}>Xem tất cả di tích <ArrowRight size={15} /></button>
@@ -498,6 +579,7 @@ function ListenerDemo({ siteCode, siteName }) {
   const [narrationError, setNarrationError] = useState('');
   const [narrationAttempt, setNarrationAttempt] = useState(0);
   const [audioPlaybackError, setAudioPlaybackError] = useState('');
+  const countedAudioUrlRef = useRef('');
   const selectedLanguageInfo = narrationLanguages.find(
     (language) => language.code === selectedLanguage,
   );
@@ -597,6 +679,14 @@ function ListenerDemo({ siteCode, siteName }) {
               controls
               preload="none"
               src={audioUrl}
+              onPlay={() => {
+                if (countedAudioUrlRef.current === audioUrl) return;
+                countedAudioUrlRef.current = audioUrl;
+                recordNarrationListen(siteCode, selectedLanguage, 'web').catch((error) => {
+                  console.error('Không thể ghi nhận lượt nghe:', error);
+                });
+              }}
+              onEnded={() => { countedAudioUrlRef.current = ''; }}
               onError={() => setAudioPlaybackError(`Không phát được audio ${selectedLanguageInfo?.name} từ Backend.`)}
             >Trình duyệt không hỗ trợ phát âm thanh.</audio>
           </div>
@@ -709,6 +799,7 @@ function NarrationsPage({ notify }) {
   const [audioError, setAudioError] = useState('');
   const audioRef = useRef(null);
   const requestId = useRef(0);
+  const countedNarrationIdRef = useRef('');
 
   useEffect(() => {
     let active = true;
@@ -823,7 +914,17 @@ function NarrationsPage({ notify }) {
       const isActive = activeId === item.id;
       return <div className="narration-row" key={item.id}><div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div><div className="narration-title"><strong>{item.site.name}</strong><span>{item.site.category} <i /> {item.language.name}</span></div><button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site.name}` : isActive && isPlaying ? `Tạm dừng ${item.site.name}` : `Nghe ${item.site.name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id || sites.length === 0} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button><button className="row-more" aria-label="Tùy chọn"><MoreHorizontal size={18} /></button></div>;
     })}{narrations.length === 0 && <div className="empty-state"><Search size={23} /><strong>Không tìm thấy bài thuyết minh</strong><span>Thay đổi từ khóa hoặc bộ lọc để xem các di tích hiện có.</span></div>}</div>
-    <div className="narration-audio-player" hidden={!audioUrl}><strong>{narrations.find((item) => item.id === activeId)?.site.name}</strong><audio ref={audioRef} controls={Boolean(audioUrl)} preload="none" src={audioUrl || undefined} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => { setActiveId(''); setIsPlaying(false); }} onError={() => { if (audioUrl) setAudioError('Không tải được file audio từ Backend.'); }} /></div>
+    <div className="narration-audio-player" hidden={!audioUrl}><strong>{narrations.find((item) => item.id === activeId)?.site.name}</strong><audio ref={audioRef} controls={Boolean(audioUrl)} preload="none" src={audioUrl || undefined} onPlay={() => {
+      setIsPlaying(true);
+      if (countedNarrationIdRef.current === activeId) return;
+      countedNarrationIdRef.current = activeId;
+      const item = narrations.find((narration) => narration.id === activeId);
+      if (item) {
+        recordNarrationListen(item.site.code, item.language.code, 'web').catch((error) => {
+          console.error('Không thể ghi nhận lượt nghe:', error);
+        });
+      }
+    }} onPause={() => setIsPlaying(false)} onEnded={() => { setActiveId(''); setIsPlaying(false); countedNarrationIdRef.current = ''; }} onError={() => { if (audioUrl) setAudioError('Không tải được file audio từ Backend.'); }} /></div>
     {audioError && <p className="listener-audio-warning">{audioError}</p>}
   </section>;
 }

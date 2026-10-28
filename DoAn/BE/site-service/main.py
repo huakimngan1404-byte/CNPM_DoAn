@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from business.admin_auth_service import AdminAuthService
 from presentation.auth_router import router as auth_router
-from presentation.site_router import router, service as site_service, visitor_router
+from presentation.site_router import listen_router, router, service as site_service, visitor_router
 
 app = FastAPI(title="District 1 Heritage Site Service")
 app.add_middleware(
@@ -14,6 +14,7 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(visitor_router)
+app.include_router(listen_router)
 
 
 @app.get("/health")

@@ -133,6 +133,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .panel-heading h3 { margin: 0; color: #343943; font: 700 13px/1.35 'Manrope', sans-serif; letter-spacing: -.2px; }
 .panel-heading p { margin: 4px 0 0; color: #9aa1ab; font-size: 9px; }
 .select-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 8px; border: 1px solid #eaecf0; border-radius: 5px; color: #626a76; background: #fff; font-size: 9px; cursor: pointer; }
+.listen-filters { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.listen-filters select, .listen-filters input { min-width: 0; }
+.listen-filters .listen-date-filter { width: 126px; }
 .select-period-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .chart-legend { display: flex; align-items: center; gap: 6px; margin: 18px 0 8px; color: #626a76; font-size: 9px; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }

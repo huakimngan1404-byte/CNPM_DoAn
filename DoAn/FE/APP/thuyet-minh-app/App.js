@@ -19,7 +19,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { languages, sites } from './src/data/heritage.js';
 import {
   apiBaseUrl, fetchNearbySites, fetchSiteAudio, fetchSites,
-  heartbeatVisitor, leaveVisitor,
+  heartbeatVisitor, leaveVisitor, recordNarrationListen,
 } from './src/services/api.js';
 import MapCanvas from './src/components/MapCanvas';
 import { translateUiText } from './src/i18n.js';
@@ -113,12 +113,30 @@ export default function App() {
   const [miniPlayerDismissed, setMiniPlayerDismissed] = useState(false);
   const [hasStartedAudio, setHasStartedAudio] = useState(false);
   const audioLoadAwaitingSiteRef = useRef(null);
+  const countedPlaybackRef = useRef(false);
   const [apiLoading, setApiLoading] = useState(true);
   const [apiError, setApiError] = useState('');
   const openLanguagePicker = (mode = 'app') => {
     setLanguagePickerMode(mode);
     setLanguagePicker(true);
   };
+
+  useEffect(() => {
+    countedPlaybackRef.current = false;
+  }, [selectedSite?.id, audioLanguage.id]);
+
+  useEffect(() => {
+    if (!playing || countedPlaybackRef.current || !selectedSite?.code) return;
+    countedPlaybackRef.current = true;
+    recordNarrationListen(selectedSite.code, audioLanguage.id).catch((error) => {
+      console.error('Không thể ghi nhận lượt nghe:', error);
+    });
+  }, [audioLanguage.id, playing, selectedSite?.code]);
+
+  useEffect(() => {
+    if (audioStatus.didJustFinish) countedPlaybackRef.current = false;
+  }, [audioStatus.didJustFinish]);
+
   const filteredSites = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('vi');
     return siteList.filter((site) => {

@@ -3,9 +3,13 @@ import math
 import pika
 import json
 import time
+import calendar
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from data.site_repository import SiteRepository
 
 ACTIVE_VISITOR_TTL_SECONDS = 45
+HO_CHI_MINH_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 class SiteService:
@@ -40,6 +44,66 @@ class SiteService:
             for session_id in expired_sessions:
                 del self.active_visitors[session_id]
             return len(self.active_visitors)
+
+    async def record_listen(self, site_code: str, language: str, device: str):
+        if not await self.repo.get_site_by_code(site_code):
+            raise LookupError("Không tìm thấy di tích.")
+        await self.repo.record_listen(site_code, language, device)
+
+    async def get_listen_stats(
+        self,
+        period: str,
+        selected_date: str | None,
+        device: str,
+    ):
+        now = datetime.now(HO_CHI_MINH_TZ)
+        try:
+            if period == "day":
+                local_date = date.fromisoformat(selected_date) if selected_date else now.date()
+                start = datetime.combine(local_date, datetime_time.min, HO_CHI_MINH_TZ)
+                end = start + timedelta(days=1)
+                labels = [f"{hour:02d}" for hour in range(24)]
+            else:
+                if selected_date:
+                    year, month = (int(part) for part in selected_date.split("-", 1))
+                    local_date = date(year, month, 1)
+                else:
+                    local_date = now.date().replace(day=1)
+                next_month = (
+                    date(local_date.year + 1, 1, 1)
+                    if local_date.month == 12
+                    else date(local_date.year, local_date.month + 1, 1)
+                )
+                start = datetime.combine(local_date, datetime_time.min, HO_CHI_MINH_TZ)
+                end = datetime.combine(next_month, datetime_time.min, HO_CHI_MINH_TZ)
+                labels = [
+                    f"{day:02d}"
+                    for day in range(1, calendar.monthrange(local_date.year, local_date.month)[1] + 1)
+                ]
+        except ValueError as error:
+            raise ValueError("Ngày thống kê không hợp lệ.") from error
+
+        result = await self.repo.get_listen_stats(
+            start.astimezone(timezone.utc),
+            end.astimezone(timezone.utc),
+            period,
+            device,
+        )
+        counts = {item["_id"]: item["count"] for item in result["buckets"]}
+        return {
+            "period": period,
+            "date": local_date.isoformat() if period == "day" else local_date.strftime("%Y-%m"),
+            "device": device,
+            "total": result["total"],
+            "buckets": [
+                {
+                    "label": f"{label}:00" if period == "day" else label,
+                    "count": counts.get(label, 0),
+                }
+                for label in labels
+            ],
+            "top_sites": result["top_sites"],
+        }
 
     # Yêu cầu 3.2: Thuật toán cốt lõi tính toán khoảng cách (công thức hình học không gian) tại lớp Service
     def calculate_distance(self, lat1, lon1, lat2, lon2):

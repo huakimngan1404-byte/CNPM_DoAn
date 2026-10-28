@@ -51,6 +51,22 @@ export const heartbeatVisitor = (sessionId) => updateVisitorSession('heartbeat',
 
 export const leaveVisitor = (sessionId) => updateVisitorSession('leave', sessionId, true);
 
+export const recordNarrationListen = async (siteCode, language) => {
+    const device = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
+    const response = await fetch(`${apiOrigin}/api/listens/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            site_code: siteCode,
+            language,
+            device,
+        }),
+    });
+    if (!response.ok) {
+        throw new Error(`Backend trả về lỗi HTTP ${response.status} khi ghi nhận lượt nghe.`);
+    }
+};
+
 export const fetchSites = async () => {
     const response = await fetch(apiBaseUrl);
     const records = await parseResponse(response);
