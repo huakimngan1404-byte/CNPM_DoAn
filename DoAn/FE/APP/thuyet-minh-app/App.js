@@ -26,19 +26,34 @@ import { translateUiText } from './src/i18n.js';
 
 const UiLanguageContext = createContext('vi');
 
-function Text({ children, ...props }) {
+function scaleReadableTextStyle(style) {
+  const flattenedStyle = StyleSheet.flatten(style);
+  if (typeof flattenedStyle?.fontSize !== 'number') return style;
+
+  const scale = 1.24;
+  return {
+    ...flattenedStyle,
+    fontSize: flattenedStyle.fontSize * scale,
+    ...(typeof flattenedStyle.lineHeight === 'number'
+      ? { lineHeight: flattenedStyle.lineHeight * scale }
+      : {}),
+  };
+}
+
+function Text({ children, style, ...props }) {
   const language = useContext(UiLanguageContext);
   const localizedChildren = Array.isArray(children)
     ? children.map((child) => typeof child === 'string' ? translateUiText(child, language) : child)
     : typeof children === 'string' ? translateUiText(children, language) : children;
-  return <NativeText {...props}>{localizedChildren}</NativeText>;
+  return <NativeText {...props} style={scaleReadableTextStyle(style)}>{localizedChildren}</NativeText>;
 }
 
-function LocalizedTextInput({ placeholder, ...props }) {
+function LocalizedTextInput({ placeholder, style, ...props }) {
   const language = useContext(UiLanguageContext);
   return (
     <NativeTextInput
       {...props}
+      style={scaleReadableTextStyle(style)}
       placeholder={placeholder ? translateUiText(placeholder, language) : placeholder}
     />
   );
@@ -96,6 +111,7 @@ export default function App() {
   const [mapAudioSiteId, setMapAudioSiteId] = useState(null);
   const [readyAudioSiteId, setReadyAudioSiteId] = useState(null);
   const [miniPlayerDismissed, setMiniPlayerDismissed] = useState(false);
+  const [hasStartedAudio, setHasStartedAudio] = useState(false);
   const audioLoadAwaitingSiteRef = useRef(null);
   const [apiLoading, setApiLoading] = useState(true);
   const [apiError, setApiError] = useState('');
@@ -310,6 +326,8 @@ useEffect(() => {
       || readyAudioSiteId !== selectedSite.id) return;
 
     audioPlayer.play();
+    setHasStartedAudio(true);
+    setMiniPlayerDismissed(false);
     if (activeTab === 'map') setMapAudioSiteId(selectedSite.id);
     setPendingAutoPlaySiteId(null);
     showToast(`Mô phỏng đã đến gần ${selectedSite.name}: đang phát thuyết minh.`);
@@ -328,6 +346,7 @@ useEffect(() => {
   };
 
   const openDetail = (site) => {
+    setHasStartedAudio(false);
     setMiniPlayerDismissed(false);
     setPendingAutoPlaySiteId(null);
     setSelectedSite(site);
@@ -343,7 +362,6 @@ useEffect(() => {
   };
 
   const playSelectedAudio = () => {
-    setMiniPlayerDismissed(false);
     if (audioLoading) {
       showToast('Đang chuẩn bị audio, vui lòng đợi một chút.');
       return;
@@ -356,19 +374,21 @@ useEffect(() => {
       showToast('Audio đang tải, vui lòng đợi một chút rồi thử lại.');
       return;
     }
+    setMiniPlayerDismissed(false);
+    setHasStartedAudio(true);
     if (playing) audioPlayer.pause();
     else audioPlayer.play();
   };
 
   const playMapAudio = (site) => {
-    setMiniPlayerDismissed(false);
     if (audioLoading || !audioStatus.isLoaded || selectedSite?.id !== site.id) {
       showToast('Audio đang được chuẩn bị. Vui lòng đợi một chút.');
       return;
     }
+    setMiniPlayerDismissed(false);
+    setHasStartedAudio(true);
     if (playing) audioPlayer.pause();
     else audioPlayer.play();
-    setMiniPlayerDismissed(false);
   };
 
   const simulateArrival = useCallback((site) => {
@@ -500,7 +520,6 @@ useEffect(() => {
               onSave={toggleSaved}
               onMap={() => selectTab('map')}
               onSeeAll={() => selectTab('explore')}
-              onNearby={findNearby}
             />
           )}
           {activeTab === 'explore' && (
@@ -558,7 +577,7 @@ useEffect(() => {
               onNotify={showToast}
             />
           )}
-          {autoPlay && !miniPlayerDismissed && screen === 'main' && activeTab !== 'map' && (
+          {hasStartedAudio && !miniPlayerDismissed && screen === 'main' && activeTab !== 'map' && (
             <View style={styles.globalMiniPlayer}>
               <View style={[styles.miniPlayerProgress, { width: `${Math.min(100, audioStatus.duration ? (elapsed / audioStatus.duration) * 100 : 0)}%` }]} />
               <Pressable style={styles.miniPlayerContent} onPress={() => setScreen('detail')}>
@@ -587,7 +606,6 @@ useEffect(() => {
           <BottomTabs activeTab={activeTab} onChange={selectTab} />
         </>
       )}
-
       <LanguagePicker
         visible={languagePicker}
         selected={(languagePickerMode === 'audio' ? audioLanguage : appLanguage).id}
@@ -686,7 +704,7 @@ function ApiStatusBanner({ loading, error, apiUrl, onRetry }) {
   );
 }
 
-function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch, onOpenSite, onSave, onMap, onSeeAll, onNearby }) {
+function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr, onSearch, onOpenSite, onSave, onMap, onSeeAll }) {
   const [slide, setSlide] = useState(0);
   const [carouselWidth, setCarouselWidth] = useState(0);
   const carouselRef = useRef(null);
@@ -713,7 +731,7 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch,
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={Platform.OS === 'web'}>
-      <AppHeader language={language} onLanguage={onLanguage} />
+      <AppHeader language={language} onLanguage={onLanguage} onShowQr={onShowQr} />
       
       <Pressable style={[styles.searchLauncher, { marginTop: 20 }]} onPress={onSearch}>
         <Search size={18} color="#99928D" /><Text style={styles.searchPlaceholder}>Bạn muốn khám phá nơi nào?</Text><View style={styles.searchTuning}><SlidersHorizontal size={15} color="#736E69" /></View>
@@ -754,6 +772,11 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch,
               saved={savedIds.includes(site.id)}
               onOpen={() => onOpenSite(site)}
               onSave={() => onSave(site)}
+              onNext={() => {
+                const nextSlide = (slide + 1) % featured.length;
+                setSlide(nextSlide);
+                carouselRef.current?.scrollTo({ x: nextSlide * carouselWidth, animated: true });
+              }}
             />
           ))}
         </ScrollView>
@@ -776,33 +799,20 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onSearch,
         {siteList.slice(1, 5).map((site) => <MiniPlaceCard key={site.id} site={site} onPress={() => onOpenSite(site)} />)}
       </ScrollView>
 
-      <View style={styles.nearbyBanner}>
-        <LinearGradient colors={['#252521', '#3D352E', '#644C39']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-        <View style={styles.nearbyBannerCopy}>
-          <View style={styles.livePill}>
-            <View style={styles.liveDot} />
-            <Text style={styles.livePillText}>THUYẾT MINH TỰ ĐỘNG</Text>
-          </View>
-          <Text style={styles.nearbyCopy}>Bật vị trí để tìm di tích gần nhất.</Text>
-          <Pressable style={styles.nearbyButton} onPress={onNearby}><LocateFixed size={14} color="#fff" /><Text style={styles.nearbyButtonText}>Tìm quanh đây</Text></Pressable>
-        </View>
-        <View style={styles.nearbyIllustration}><View style={styles.glowCircle} /><BuildingIllustration color="#C9A37B" /></View>
-      </View>
-      
       <View style={styles.homeFooter}><ShieldMark /><Text>Khám phá di sản · Lắng nghe câu chuyện</Text></View>
     </ScrollView>
   );
 }
 
-function FeaturedCard({ site, index, width, saved, onOpen, onSave }) {
+function FeaturedCard({ site, index, width, saved, onOpen, onSave, onNext }) {
   const palettes = [['#312723', '#91654B', '#E2B78B'], ['#243135', '#617A70', '#B6C1A7'], ['#32302B', '#88735D', '#D3B58F']];
   const colors = palettes[index % palettes.length];
   return (
-    <Pressable onPress={onOpen} style={[styles.featuredCard, { width }]}>
+    <Pressable onPress={onOpen} style={[styles.featuredCard, { width, height: Math.min(420, Math.max(330, width * 0.5)) }]}>
       <ImageBackground source={site.image} resizeMode="cover" style={StyleSheet.absoluteFill} imageStyle={styles.featuredImage}>
-        <LinearGradient colors={['#15141218', '#17151400', '#151412E8']} locations={[0, 0.36, 1]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={['#15141208', '#17151400', '#151412A8']} locations={[0, 0.48, 1]} style={StyleSheet.absoluteFill} />
       </ImageBackground>
-      <View style={styles.photoTint}><LinearGradient colors={[`${colors[0]}88`, `${colors[1]}66`, `${colors[2]}22`]} style={StyleSheet.absoluteFill} /><BuildingIllustration color={colors[2]} large /></View>
+      <View style={styles.photoTint}><LinearGradient colors={[`${colors[0]}88`, `${colors[1]}66`, `${colors[2]}22`]} style={StyleSheet.absoluteFill} /></View>
       <View style={styles.featuredTop}><View style={styles.featuredTag}><Sparkles size={11} color="#fff" /><Text style={styles.featuredTagText}>NỔI BẬT</Text></View><Pressable style={styles.favoriteButton} onPress={(event) => { event.stopPropagation(); onSave(); }}><Heart size={17} color="#fff" fill={saved ? '#F04D2E' : 'transparent'} /></Pressable></View>
       <View style={styles.featuredBottom}>
         <View style={styles.distancePill}><Navigation size={11} color="#fff" /><Text style={styles.distancePillText}>{site.distance}</Text><Text style={styles.distanceDivider}>·</Text><Text style={styles.distancePillText}>{site.category}</Text></View>
@@ -817,8 +827,18 @@ function FeaturedCard({ site, index, width, saved, onOpen, onSave }) {
             <View style={styles.featuredDuration}><Clock3 size={12} color="#fff" />
             <Text style={styles.featuredDurationText}>{site.duration}
               </Text></View>
-              <View style={styles.featuredArrow}><ArrowRight size={17} color="#fff" />
-              </View></View>
+              <Pressable
+                style={styles.featuredArrow}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  onNext();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Xem di tích kế tiếp"
+              >
+                <ArrowRight size={17} color="#fff" />
+              </Pressable>
+            </View>
       </View>
     </Pressable>
   );
@@ -873,9 +893,9 @@ function ExploreScreen({ language, search, setSearch, category, setCategory, sit
   const categoryDrag = useMouseDragScroll();
   const categories = ['Tất cả', 'Lịch sử', 'Kiến trúc', 'Bảo tàng', 'Văn hóa'];
   return <View style={styles.fill}>
-    <AppHeader language={language} onLanguage={onLanguage} title="Khám phá" subtitle="Mỗi góc phố, một câu chuyện." />
+    <AppHeader language={language} onLanguage={onLanguage} title="Khám phá" />
     <View style={styles.exploreSearch}><Search size={17} color={muted} /><LocalizedTextInput value={search} onChangeText={setSearch} placeholder="Tìm di tích, đường phố..." placeholderTextColor="#aaa39d" style={styles.exploreInput} returnKeyType="search" /><Pressable style={styles.filterButton} onPress={() => setCategory(category === 'Tất cả' ? 'Lịch sử' : 'Tất cả')}><SlidersHorizontal size={17} color={ink} /></Pressable></View>
-    <ScrollView {...categoryDrag} horizontal showsHorizontalScrollIndicator={false} onWheel={Platform.OS === 'web' ? scrollHorizontallyWithWheel : undefined} contentContainerStyle={styles.categoryChips}>{categories.map((item) => <Pressable key={item} onPress={() => setCategory(item)} style={[styles.categoryChip, category === item && styles.categoryChipActive]}><Text style={[styles.categoryChipText, category === item && styles.categoryChipTextActive]}>{item}</Text></Pressable>)}</ScrollView>
+    <ScrollView {...categoryDrag} style={styles.categoryScroll} horizontal showsHorizontalScrollIndicator={false} onWheel={Platform.OS === 'web' ? scrollHorizontallyWithWheel : undefined} contentContainerStyle={styles.categoryChips}>{categories.map((item) => <Pressable key={item} onPress={() => setCategory(item)} style={[styles.categoryChip, category === item && styles.categoryChipActive]}><Text style={[styles.categoryChipText, category === item && styles.categoryChipTextActive]}>{item}</Text></Pressable>)}</ScrollView>
     <View style={styles.exploreResults}><Text style={styles.resultCount}>{list.length} ĐIỂM THAM QUAN</Text><View style={styles.nearbyStatus}><View style={styles.liveDotSmall} /><Text>GẦN BẠN</Text></View></View>
     <ScrollView style={styles.exploreList} contentContainerStyle={styles.exploreListContent} showsVerticalScrollIndicator={Platform.OS === 'web'}>
       {list.map((site, index) => <ExploreCard key={site.id} site={site} index={index} saved={savedIds.includes(site.id)} onPress={() => onOpenSite(site)} onSave={() => onSave(site)} />)}
@@ -982,23 +1002,24 @@ function DetailScreen({ site, sites: siteList, language, playing, audioLoading, 
         
         {/* Đã sửa dòng dưới đây thành ảnh Local */}
         <ImageBackground source={site.image} style={StyleSheet.absoluteFill} imageStyle={styles.detailImage}>
-          <LinearGradient colors={[`${site.paint[0]}55`, `${site.paint[1]}75`, `${site.paint[0]}F0`]} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={[`${site.paint[0]}18`, `${site.paint[1]}08`, '#151412B8']} locations={[0, 0.52, 1]} style={StyleSheet.absoluteFill} />
         </ImageBackground>
         
-        <BuildingIllustration color={site.paint[2]} large />
         <View style={styles.detailTopBar}><Pressable style={styles.detailRound} onPress={onBack}><ArrowLeft size={19} color="#fff" /></Pressable><View style={styles.detailTopActions}><Pressable style={styles.detailRound} onPress={onSave}><Bookmark size={17} color="#fff" fill={isSaved ? '#fff' : 'transparent'} /></Pressable><Pressable style={styles.detailRound} onPress={() => {}}><MoreHorizontal size={19} color="#fff" /></Pressable></View></View>
-        <View style={styles.detailHeroBottom}><View style={styles.featuredTag}><Sparkles size={11} color="#fff" /><Text style={styles.featuredTagText}>{site.category.toUpperCase()}</Text></View><Text style={styles.detailHeroTitle}>{site.name}</Text><View style={styles.detailHeroAddress}><MapPin size={13} color="#eee" /><Text style={styles.detailHeroAddressText}>{site.address} · {site.distance}</Text></View></View>
+        <View style={styles.detailHeroBottom}><View style={[styles.featuredTag, styles.detailHeroTag]}><Sparkles size={11} color="#fff" /><Text style={styles.featuredTagText}>{site.category.toUpperCase()}</Text></View><Text style={styles.detailHeroTitle}>{site.name}</Text><View style={styles.detailHeroAddress}><MapPin size={13} color="#eee" /><Text style={styles.detailHeroAddressText}>{site.address} · {site.distance}</Text></View></View>
       </View>
       <View style={styles.detailContent}>
         <View style={styles.detailAudioCard}>
-          <View style={styles.audioCardTop}><View style={styles.audioLangRow}><View style={styles.audioLangIcon}><Text>{language.flag}</Text></View><View><Text style={styles.audioLangName}>{language.name}</Text><Text style={styles.audioVoice}>{voiceLabel(language.id)}</Text></View></View><Pressable style={styles.audioChangeLang} onPress={onLanguage}><Languages size={15} color="#756E68" /><ChevronDown size={12} color="#756E68" /></Pressable></View>
+          <View style={styles.audioCardTop}><View style={styles.audioLangRow}><View style={styles.audioLangIcon}><Text>{language.flag}</Text></View><Text style={styles.audioLangName}>{language.name}</Text></View><Pressable style={styles.audioChangeLang} onPress={onLanguage}><Languages size={15} color="#756E68" /><ChevronDown size={12} color="#756E68" /></Pressable></View>
           <View style={styles.audioTrack}><View style={styles.audioTimeRow}><Text style={styles.audioTimeCurrent}>{formatDuration(elapsed)}</Text><Text style={styles.audioTimeText}>{duration > 0 ? formatDuration(duration) : '--:--'}</Text></View><View style={styles.audioProgress}><View style={[styles.audioProgressFill, { width: progress }]} /><View style={[styles.audioKnob, { left: progress }]} /></View></View>
-          <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{audioLoading ? <ActivityIndicator size="small" color="#fff" /> : playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable><View style={styles.speedPill}><Text>1x</Text></View></View>
+          <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{audioLoading ? <ActivityIndicator size="small" color="#fff" /> : playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable></View>
           {!!audioError && <Text style={styles.audioPlaybackError}>{audioError}</Text>}
         </View>
-        <View style={styles.detailStoryHeader}><View><Text style={styles.storyEyebrow}>CÂU CHUYỆN DI SẢN</Text><Text style={styles.storyTitle}>Lắng nghe lịch sử</Text></View><Pressable style={styles.shareButton} onPress={() => {}}><Share2 size={16} color="#6E6964" /></Pressable></View>
-        <Text style={styles.storyText}>{site.story}</Text>
-        <View style={styles.factStrip}><View style={styles.factIcon}><Clock3 size={16} color={accent} /></View><View style={styles.factCopy}><Text style={styles.factLabel}>THỜI GIAN THAM QUAN</Text><Text style={styles.factValue}>Khoảng 15 – 30 phút</Text></View><ChevronRight size={16} color="#a7a09a" /></View>
+          <View style={styles.detailStoryHeader}>
+            <View><Text style={styles.storyTitle}>Lắng nghe lịch sử</Text></View>
+            <Pressable style={styles.shareButton} onPress={() => {}}><Share2 size={16} color="#6E6964" /></Pressable>
+          </View>
+          <Text style={styles.storyText}>{site.story}</Text>
         <View style={styles.locationCard}><View style={styles.locationMapArt}><View style={styles.mapStreetLine} /><View style={styles.mapBlockA} /><View style={styles.mapBlockB} /><View style={styles.locationPin}><MapPin size={17} color="#fff" fill={accent} /></View></View><View style={styles.locationText}><View><Text style={styles.storyEyebrow}>VỊ TRÍ DI TÍCH</Text><Text style={styles.locationAddress}>{site.address}</Text><Text style={styles.locationDistrict}>Quận 1, TP. Hồ Chí Minh</Text></View><Pressable style={styles.navigateButton} onPress={() => {}}><Navigation size={15} color="#fff" /></Pressable></View></View>
         <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>Nghe tiếp hành trình</Text><Text style={styles.sectionSub}>Những điểm gần đây</Text></View></View>
         <ScrollView {...recommendationsDrag} horizontal showsHorizontalScrollIndicator={false} onWheel={Platform.OS === 'web' ? scrollHorizontallyWithWheel : undefined} contentContainerStyle={styles.horizontalCards}>{siteList.filter((item) => item.id !== site.id).slice(0, 4).map((item) => <MiniPlaceCard key={item.id} site={item} onPress={() => onOpenSite(item)} />)}</ScrollView>
@@ -1796,16 +1817,6 @@ function durationSeconds(value) {
   return 0;
 }
 
-function voiceLabel(language) {
-  return {
-    vi: 'Giọng đọc · Nữ miền Nam',
-    en: 'Narration · Female voice',
-    ja: '音声 · 女性の声',
-    zh: '语音 · 女声',
-    fr: 'Narration · Voix féminine',
-  }[language] || 'Audio narration';
-}
-
 function scrollHorizontallyWithWheel(event) {
   event.preventDefault();
   const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
@@ -1948,9 +1959,9 @@ const styles = StyleSheet.create({
   heroCarousel: { gap: 0 },
   featuredCarouselViewport: { width: '100%', alignSelf: 'stretch', flexShrink: 0 },
   featuredCarouselScroll: { width: '100%', flexGrow: 0 },
-  featuredCard: { position: 'relative', flexShrink: 0, height: 242, overflow: 'hidden', borderRadius: 17, backgroundColor: '#514238' },
-  featuredImage: { opacity: 0.66 },
-  photoTint: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', opacity: 0.89 },
+  featuredCard: { position: 'relative', flexShrink: 0, overflow: 'hidden', borderRadius: 17, backgroundColor: '#514238' },
+  featuredImage: { opacity: 0.9 },
+  photoTint: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', opacity: 0.38 },
   featuredTop: { position: 'absolute', top: 12, right: 12, left: 12, flexDirection: 'row', justifyContent: 'space-between' },
   featuredTag: { height: 27, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 9, borderWidth: 1, borderColor: '#ffffff38', borderRadius: 6, backgroundColor: '#231e1b55' },
   featuredTagText: { color: '#fff', fontSize: 10.5, fontWeight: '800', letterSpacing: 0.3 },
@@ -1985,15 +1996,15 @@ const styles = StyleSheet.create({
   quickLabel: { color: '#66615D', fontSize: 8, fontWeight: '600' },
   textOnlyLink: { paddingBottom: 2 },
   horizontalCards: { gap: 10, paddingBottom: 3, paddingRight: 16 },
-  miniPlaceCard: { width: 146, overflow: 'hidden', borderWidth: 1, borderColor: '#F0ECE8', borderRadius: 11, backgroundColor: '#fff' },
-  miniArtwork: { position: 'relative', height: 110, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  miniPlaceCard: { width: 224, overflow: 'hidden', borderWidth: 1, borderColor: '#F0ECE8', borderRadius: 14, backgroundColor: '#fff' },
+  miniArtwork: { position: 'relative', height: 168, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   miniDistance: { position: 'absolute', left: 8, bottom: 8, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 6, backgroundColor: '#24201DB8' },
   miniDistanceText: { color: '#fff', fontSize: 10.5, fontWeight: '700' },
-  miniPlaceInfo: { paddingHorizontal: 8, paddingTop: 7, paddingBottom: 8 },
-  miniPlaceTitle: { color: ink, fontSize: 9, fontWeight: '700' },
-  miniPlaceCategory: { marginTop: 3, color: '#A09A94', fontSize: 7 },
-  miniAudio: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-  miniAudioText: { color: '#817A74', fontSize: 7 },
+  miniPlaceInfo: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14 },
+  miniPlaceTitle: { color: ink, fontSize: 14, fontWeight: '700' },
+  miniPlaceCategory: { marginTop: 6, color: '#A09A94', fontSize: 10 },
+  miniAudio: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 10 },
+  miniAudioText: { color: '#817A74', fontSize: 11 },
   buildingArt: { position: 'absolute', bottom: 3, width: 75, height: 54, alignItems: 'center', justifyContent: 'flex-end' },
   buildingArtLarge: { bottom: 31, width: 145, height: 116 },
   artDome: { width: 26, height: 20, borderTopWidth: 2, borderLeftWidth: 2, borderRightWidth: 2, borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: '#fff1' },
@@ -2002,27 +2013,17 @@ const styles = StyleSheet.create({
   artColumn: { width: 5, marginTop: 3, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
   artWindow: { width: 3, height: 8, marginTop: 9, marginLeft: 1, borderTopLeftRadius: 3, borderTopRightRadius: 3, backgroundColor: '#35312C85' },
   artBase: { width: '94%', height: 4, borderRadius: 2 },
-  nearbyBanner: { position: 'relative', height: 162, flexDirection: 'row', overflow: 'hidden', marginTop: 21, borderRadius: 14 },
-  nearbyBannerCopy: { zIndex: 2, flex: 1, justifyContent: 'center', paddingLeft: 15 },
-  livePill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 7, backgroundColor: '#ffffff17' },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#89D2A2' },
-  livePillText: { color: '#fff', fontSize: 10.5, fontWeight: '700', letterSpacing: 0.5 },
-  nearbyTitle: { marginTop: 7, color: '#fff', fontSize: 18, fontWeight: '800', lineHeight: 22, letterSpacing: -0.3 },
-  nearbyCopy: { marginTop: 8, color: '#fff', fontSize: 11 },
-  nearbyButton: { alignSelf: 'flex-start', height: 42, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 14, borderRadius: 8, backgroundColor: accent },
-  nearbyButtonText: { color: '#fff', fontSize: 10.5, fontWeight: '700' },
-  nearbyIllustration: { position: 'absolute', right: -11, bottom: 0, width: '48%', height: '100%', justifyContent: 'flex-end' },
-  glowCircle: { position: 'absolute', top: 13, right: 28, width: 83, height: 83, borderRadius: 50, backgroundColor: '#D6AF7966' },
   homeFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 17, marginBottom: 8 },
   homeFooterText: { color: '#AAA39D', fontSize: 8 },
   shieldMark: { width: 20, height: 20, alignItems: 'center', justifyContent: 'center', borderRadius: 7, backgroundColor: '#FFF0E8' },
   exploreSearch: { height: 43, flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginTop: 9, paddingHorizontal: 11, borderWidth: 1, borderColor: '#ECE8E4', borderRadius: 11, backgroundColor: '#fff' },
   exploreInput: { flex: 1, height: 42, color: ink, fontSize: 10 },
   filterButton: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: '#F7F5F2' },
-  categoryChips: { gap: 7, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 5 },
-  categoryChip: { height: 30, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: '#EAE6E2', borderRadius: 16, backgroundColor: '#fff' },
+  categoryScroll: { flexGrow: 0, flexShrink: 0 },
+  categoryChips: { gap: 9, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 7 },
+  categoryChip: { height: 38, justifyContent: 'center', paddingHorizontal: 16, borderWidth: 1, borderColor: '#EAE6E2', borderRadius: 20, backgroundColor: '#fff' },
   categoryChipActive: { borderColor: ink, backgroundColor: ink },
-  categoryChipText: { color: '#79736E', fontSize: 9, fontWeight: '600' },
+  categoryChipText: { color: '#79736E', fontSize: 11, fontWeight: '600' },
   categoryChipTextActive: { color: '#fff' },
   exploreResults: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 17, paddingTop: 13, paddingBottom: 7 },
   resultCount: { color: '#A09A94', fontSize: 8, fontWeight: '800', letterSpacing: 0.7 },
@@ -2031,30 +2032,29 @@ const styles = StyleSheet.create({
   liveDotSmall: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#5CB987' },
   exploreList: { flex: 1 },
   exploreListContent: { paddingHorizontal: 16, paddingBottom: 14 },
-  exploreCard: { flexDirection: 'row', gap: 10, marginBottom: 9, padding: 8, borderWidth: 1, borderColor: '#F0ECE8', borderRadius: 12, backgroundColor: '#fff' },
-  exploreArtwork: { position: 'relative', width: 96, height: 102, flex: 0, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 8 },
+  exploreCard: { flexDirection: 'row', gap: 15, marginBottom: 15, padding: 14, borderWidth: 1, borderColor: '#F0ECE8', borderRadius: 15, backgroundColor: '#fff' },
+  exploreArtwork: { position: 'relative', width: 144, height: 154, flex: 0, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: 11 },
   artNumber: { position: 'absolute', top: 6, left: 7, color: '#ffffffb8', fontSize: 8, fontWeight: '800' },
   exploreCardInfo: { flex: 1, justifyContent: 'center', minWidth: 0 },
   exploreCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  exploreCategory: { color: accent, fontSize: 7, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase' },
-  explorePlaceName: { marginTop: 5, color: ink, fontSize: 12, fontWeight: '800', letterSpacing: -0.2 },
-  exploreAddress: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 },
-  exploreAddressText: { maxWidth: '60%', color: '#928B85', fontSize: 8 },
+  exploreCategory: { color: accent, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase' },
+  explorePlaceName: { marginTop: 8, color: ink, fontSize: 18, fontWeight: '800', letterSpacing: -0.2 },
+  exploreAddress: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 },
+  exploreAddressText: { maxWidth: '60%', color: '#928B85', fontSize: 11 },
   dotSep: { color: '#B7B0A9', fontSize: 9 },
-  exploreDistance: { color: '#7F7973', fontSize: 8, fontWeight: '600' },
-  exploreCardBottom: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 9, paddingTop: 7, borderTopWidth: 1, borderTopColor: '#F2EFEC' },
+  exploreDistance: { color: '#7F7973', fontSize: 11, fontWeight: '600' },
+  exploreCardBottom: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 14, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#F2EFEC' },
   langFlags: { flexDirection: 'row', alignItems: 'center' },
   langFlag: { marginRight: 2, fontSize: 10 },
   exploreDuration: { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 'auto' },
-  exploreDurationText: { color: '#817A74', fontSize: 7 },
+  exploreDurationText: { color: '#817A74', fontSize: 11 },
   emptyState: { minHeight: 240, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
   emptyTitle: { marginTop: 12, color: ink, fontSize: 13, fontWeight: '700' },
   emptyCopy: { marginTop: 5, color: '#9B948E', fontSize: 9, textAlign: 'center', lineHeight: 15 },
   detailRoot: { flex: 1, backgroundColor: '#FBFAF8' },
   detailScroll: { paddingBottom: 15 },
-  detailHero: { position: 'relative', height: 275, overflow: 'hidden', justifyContent: 'flex-end' },
-  detailImage: { opacity: 0.56 },
-  detailBuildingArt: { right: 24, bottom: 42, opacity: 0.42 },
+  detailHero: { position: 'relative', height: Platform.OS === 'web' ? 360 : 320, overflow: 'hidden', justifyContent: 'flex-end' },
+  detailImage: { opacity: 1 },
   detailTopBar: { position: 'absolute', top: Platform.OS === 'web' ? 8 : 4, right: 15, left: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   detailTopActions: { flexDirection: 'row', gap: 7 },
   detailRound: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ffffff52', borderRadius: 12, backgroundColor: '#1D1A185C' },
@@ -2069,7 +2069,6 @@ const styles = StyleSheet.create({
   audioLangRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   audioLangIcon: { width: 33, height: 33, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#FFF1EA' },
   audioLangName: { color: '#49433F', fontSize: 9, fontWeight: '700' },
-  audioVoice: { marginTop: 3, color: '#A19A94', fontSize: 7 },
   audioChangeLang: { flexDirection: 'row', gap: 4, padding: 7, borderWidth: 1, borderColor: '#EFECE8', borderRadius: 7 },
   audioTrack: { marginTop: 15 },
   audioTimeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 },
@@ -2084,15 +2083,10 @@ const styles = StyleSheet.create({
   skipButton: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#F7F5F2' },
   largePlay: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: accent, shadowColor: accent, shadowOpacity: 0.28, shadowRadius: 9, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   detailStoryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 19 },
-  storyEyebrow: { color: accent, fontSize: 7, fontWeight: '800', letterSpacing: 0.95 },
   storyTitle: { marginTop: 4, color: ink, fontSize: 17, fontWeight: '800' },
   shareButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ECE8E4', borderRadius: 10, backgroundColor: '#fff' },
   storyText: { marginTop: 9, color: '#716B65', fontSize: 10, lineHeight: 18 },
-  factStrip: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 14, padding: 10, borderWidth: 1, borderColor: '#F0ECE8', borderRadius: 10, backgroundColor: '#fff' },
-  factIcon: { width: 31, height: 31, alignItems: 'center', justifyContent: 'center', borderRadius: 9, backgroundColor: '#FFF1EA' },
-  factCopy: { flex: 1 },
-  factLabel: { color: '#A19A94', fontSize: 7, fontWeight: '700', letterSpacing: 0.6 },
-  factValue: { marginTop: 4, color: '#514B46', fontSize: 9, fontWeight: '600' },
+  storyEyebrow: { color: accent, fontSize: 7, fontWeight: '800', letterSpacing: 0.95 },
   locationCard: { marginTop: 10, padding: 8, borderWidth: 1, borderColor: '#F0ECE8', borderRadius: 10, backgroundColor: '#fff' },
   locationMapArt: { position: 'relative', height: 82, overflow: 'hidden', borderRadius: 7, backgroundColor: '#EBEFE7' },
   mapStreetLine: { position: 'absolute', top: '49%', left: -10, width: '115%', height: 8, backgroundColor: '#fff', transform: [{ rotate: '-6deg' }] },
