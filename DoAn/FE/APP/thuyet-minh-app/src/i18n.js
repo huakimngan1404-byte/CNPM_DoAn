@@ -654,6 +654,47 @@ export const translateUiText = (value, language = 'vi') => {
     return `${leadingWhitespace}${dictionary[uppercaseKey].toLocaleUpperCase()}${trailingWhitespace}`;
   }
 
+  const mapArrival = text.match(/^Đang đi vào vòng di tích · (.+)$/);
+  if (mapArrival) {
+    const arrivalLabels = {
+      en: `Approaching the landmark boundary · ${mapArrival[1]}`,
+      ja: `史跡の周辺に近づいています · ${mapArrival[1]}`,
+      zh: `正在接近遗迹范围 · ${mapArrival[1]}`,
+      fr: `Approche de la limite du site · ${mapArrival[1]}`,
+    };
+    if (arrivalLabels[language]) {
+      return `${leadingWhitespace}${arrivalLabels[language]}${trailingWhitespace}`;
+    }
+  }
+
+  const nearbyRoute = text.match(/^Đang đi đến đường gần nhất · cách di tích khoảng (\d+) m · (.+)$/);
+  if (nearbyRoute) {
+    const [, distanceToSite, routeDistance] = nearbyRoute;
+    const routeLabels = {
+      en: `Walking to the nearest road · ${distanceToSite} m from the landmark · ${routeDistance}`,
+      ja: `最寄りの道路へ移動中 · 史跡まで約${distanceToSite} m · ${routeDistance}`,
+      zh: `正在前往最近的道路 · 距遗迹约${distanceToSite}米 · ${routeDistance}`,
+      fr: `Marche vers la route la plus proche · à ${distanceToSite} m du site · ${routeDistance}`,
+    };
+    if (routeLabels[language]) {
+      return `${leadingWhitespace}${routeLabels[language]}${trailingWhitespace}`;
+    }
+  }
+
+  const simulatedArrival = text.match(/^Mô phỏng đã đến gần (.+): đang phát thuyết minh\.$/);
+  if (simulatedArrival) {
+    const siteName = dictionary[simulatedArrival[1]] || simulatedArrival[1];
+    const arrivalMessages = {
+      en: `Simulation has approached ${siteName}: playing the audio guide.`,
+      ja: `シミュレーションで${siteName}に接近しました：音声ガイドを再生しています。`,
+      zh: `模拟已接近${siteName}：正在播放语音讲解。`,
+      fr: `La simulation est arrivée près de ${siteName} : lecture du guide audio.`,
+    };
+    if (arrivalMessages[language]) {
+      return `${leadingWhitespace}${arrivalMessages[language]}${trailingWhitespace}`;
+    }
+  }
+
   const localizedDistrict = dictionary['Quận 1'];
   if (localizedDistrict && text.length <= 160 && text.includes('Quận 1')) {
     return `${leadingWhitespace}${text.replaceAll('Quận 1', localizedDistrict)}${trailingWhitespace}`;
