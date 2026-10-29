@@ -288,26 +288,29 @@ class SiteRepository:
             {"$limit": 8},
         ]
         top_sites = [item async for item in db.listening_events.aggregate(site_pipeline)]
-        site_codes = [item["_id"] for item in top_sites]
-        site_names = {}
-        if site_codes:
-            cursor = db.sites.find(
-                {"code": {"$in": site_codes}},
-                {"_id": 0, "code": 1, "name": 1},
-            )
-            site_names = {site["code"]: site["name"] async for site in cursor}
+        listen_counts = {item["_id"]: item["count"] for item in top_sites}
+        all_sites_cursor = db.sites.find(
+            {},
+            {"_id": 0, "code": 1, "name": 1},
+        ).sort("name", 1)
+        all_sites = [site async for site in all_sites_cursor]
+        top_sites_with_zero_counts = [
+            {
+                "site_code": site["code"],
+                "site_name": site.get("name", site["code"]),
+                "count": listen_counts.get(site["code"], 0),
+            }
+            for site in all_sites
+            if site.get("code")
+        ]
+        top_sites_with_zero_counts.sort(
+            key=lambda site: (-site["count"], site["site_name"].casefold())
+        )
 
         return {
             "total": total,
             "buckets": buckets,
-            "top_sites": [
-                {
-                    "site_code": item["_id"],
-                    "site_name": site_names.get(item["_id"], item["_id"]),
-                    "count": item["count"],
-                }
-                for item in top_sites
-            ],
+            "top_sites": top_sites_with_zero_counts[:8],
         }
 
     async def get_all_sites(self):
