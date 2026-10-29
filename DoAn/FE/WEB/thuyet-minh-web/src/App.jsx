@@ -811,8 +811,8 @@ function PlacesPage({ sites, totalSites, allSites, search, setSearch, statusFilt
             <td><LanguagePills codes={site.languages} /></td>
             <td><StatusBadge status={site.status} /></td>
             <td><div className="site-row-actions">
-              <button className="row-more" aria-label={`Sửa ${site.name}`} title="Sửa di tích" onClick={() => onEdit(site)}><Pencil size={14} /><span>Sửa</span></button>
-              <button className="row-more delete-action" aria-label={`Xóa ${site.name}`} title="Xóa di tích" onClick={() => onDelete(site)}><Trash2 size={14} /><span>Xóa</span></button>
+              <button className="row-more" aria-label={`Sửa di tích ${site.name}`} title={`Sửa di tích ${site.name}`} onClick={() => onEdit(site)}><Pencil size={15} /></button>
+              <button className="row-more delete-action" aria-label={`Xóa di tích ${site.name}`} title={`Xóa di tích ${site.name}`} onClick={() => onDelete(site)}><Trash2 size={15} /></button>
             </div></td>
           </tr>)}</tbody>
         </table>
@@ -1039,8 +1039,10 @@ function NarrationsPage({ notify, languages }) {
           <div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div>
           <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()} {!item.is_active && <em>Ngôn ngữ đã tắt</em>}</span><small>{item.description}</small></div>
           <button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site_name}` : isActive && isPlaying ? `Tạm dừng ${item.site_name}` : `Nghe ${item.site_name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button>
-          <button className="row-more" aria-label={`Sửa ${item.site_name}`} title="Sửa bài thuyết minh" onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={14} /><span>Sửa</span></button>
-          <button className="row-more delete-action" aria-label={`Xóa ${item.site_name}`} title="Xóa bài thuyết minh" onClick={() => removeNarration(item)}><Trash2 size={14} /><span>Xóa</span></button>
+          <div className="site-row-actions">
+            <button className="row-more" aria-label={`Sửa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`Sửa ${item.site_name} · ${item.language_name}`} onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={15} /></button>
+            <button className="row-more delete-action" aria-label={`Xóa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`Xóa ${item.site_name} · ${item.language_name}`} onClick={() => removeNarration(item)}><Trash2 size={15} /></button>
+          </div>
         </div>;
       })}{!loading && visibleNarrations.length === 0 && <div className="empty-state"><Search size={23} /><strong>{narrations.length ? 'Không tìm thấy bài thuyết minh' : 'Chưa có bài thuyết minh'}</strong><span>{narrations.length ? 'Thay đổi từ khóa hoặc bộ lọc để xem các bài hiện có.' : 'Thêm bài mới hoặc tạo bản dịch từ nội dung tiếng Việt.'}</span></div>}</div>
       <div className="narration-audio-player" hidden={!audioUrl}><strong>{visibleNarrations.find((item) => item.id === activeId)?.site_name}</strong><audio ref={audioRef} controls={Boolean(audioUrl)} preload="none" src={audioUrl || undefined} onPlay={() => {
