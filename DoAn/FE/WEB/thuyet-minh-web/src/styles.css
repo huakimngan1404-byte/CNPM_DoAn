@@ -320,7 +320,6 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .language-overview > div:nth-child(2) span { color: #9aa1ab; font-size: 8px; font-weight: 700; letter-spacing: .7px; }
 .language-overview > div:nth-child(2) strong { color: #353b45; font: 800 19px 'Manrope',sans-serif; }
 .language-overview > div:nth-child(2) small { color: #9ea5af; font-size: 11px; font-weight: 500; }
-.language-overview-note { margin-left: auto; color: #999faa; font-size: 8px; }
 .language-panel { padding: 17px 0 0; }
 .language-panel > .panel-heading { padding: 0 19px 14px; }
 .language-list { padding: 0 19px; }

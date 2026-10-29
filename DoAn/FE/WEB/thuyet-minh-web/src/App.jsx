@@ -1243,7 +1243,6 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
     <section className="panel language-overview">
       <div className="language-overview-icon"><Globe2 size={22} /></div>
       <div><span>NGÔN NGỮ ĐANG HIỂN THỊ</span><strong>{activeLanguages.length} <small>/ {languages.length}</small></strong></div>
-      <small className="language-overview-note">Ngôn ngữ có thể dùng để dịch và tạo audio</small>
     </section>
     <section className="panel language-panel">
       <div className="panel-heading language-manager-heading">
