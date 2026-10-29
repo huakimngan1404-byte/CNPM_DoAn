@@ -739,7 +739,7 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
   const [nearbyWidth, setNearbyWidth] = useState(0);
   const nearbyPageSize = 5;
   const featured = siteList.slice(0, 3);
-  const nearbyColumns = Math.max(1, Math.min(5, Math.floor((nearbyWidth + 10) / 234)));
+  const nearbyColumns = Math.max(1, Math.min(5, Math.floor((nearbyWidth + 10) / 260)));
   const nearbyPageCount = Math.max(1, Math.ceil(siteList.length / nearbyPageSize));
   const currentNearbyPage = Math.min(nearbyPage, nearbyPageCount - 1);
   const nearbySites = siteList.slice(
@@ -747,8 +747,9 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
     (currentNearbyPage + 1) * nearbyPageSize,
   );
   const nearbyCardWidth = nearbyWidth
-    ? Math.min(270, (nearbyWidth - 16 - (nearbyColumns - 1) * 10) / nearbyColumns)
+    ? Math.min(340, (nearbyWidth - 16 - (nearbyColumns - 1) * 10) / nearbyColumns)
     : 224;
+  const nearbyArtworkHeight = Math.min(210, Math.max(168, nearbyCardWidth * 0.625));
 
   useEffect(() => {
     setNearbyPage((current) => Math.min(current, nearbyPageCount - 1));
@@ -850,6 +851,7 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
               key={site.id}
               site={site}
               width={nearbyCardWidth}
+              artworkHeight={nearbyArtworkHeight}
               onPress={() => onOpenSite(site)}
             />
           ))}
@@ -938,14 +940,14 @@ function QuickAction({ icon: Icon, label, tone, onPress }) {
   return <Pressable style={styles.quickAction} onPress={onPress}><View style={[styles.quickIcon, styles[`quickIcon_${tone}`]]}><Icon size={18} color={styles[`quickColor_${tone}`].color} /></View><Text style={styles.quickLabel}>{label}</Text></Pressable>;
 }
 
-function MiniPlaceCard({ site, onPress, width = 224 }) {
+function MiniPlaceCard({ site, onPress, width = 224, artworkHeight = 168 }) {
   const paint = Array.isArray(site.paint) && site.paint.length >= 3
     ? site.paint
     : ['#312723', '#91654B', '#E2B78B'];
   
   return (
     <Pressable style={[styles.miniPlaceCard, { width }]} onPress={onPress}>
-      <View style={[styles.miniArtwork, { backgroundColor: paint[0] }]}>
+      <View style={[styles.miniArtwork, { backgroundColor: paint[0], height: artworkHeight }]}>
         {site.image ? (
           <ImageBackground source={site.image} style={StyleSheet.absoluteFill} resizeMode="cover">
             <LinearGradient colors={[`${paint[0]}88`, `${paint[1]}55`, `${paint[2]}22`]} style={StyleSheet.absoluteFill} />
