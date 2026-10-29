@@ -15,6 +15,14 @@ const translations = {
     'Chọn ngôn ngữ thuyết minh': 'Choose the audio guide language',
     'Mở Di Tích Q1 trên điện thoại': 'Open Di Tich Q1 on your phone',
     'Dùng camera điện thoại quét mã QR': 'Scan this QR code with your phone camera',
+    'Bến Nhà Rồng': 'Dragon House Wharf',
+    'Dinh Độc Lập': 'Independence Palace',
+    'Nhà thờ Đức Bà Sài Gòn': 'Saigon Notre-Dame Cathedral',
+    'Bưu điện Trung tâm Sài Gòn': 'Saigon Central Post Office',
+    'Nhà hát Thành phố': 'Saigon Opera House',
+    'Chợ Bến Thành': 'Ben Thanh Market',
+    'Bảo tàng Thành phố Hồ Chí Minh': 'Ho Chi Minh City Museum',
+    'Bảo tàng Tôn Đức Thắng': 'Ton Duc Thang Museum',
     'Tìm di tích, đường phố...': 'Search landmarks and streets...',
     'Tìm Bến Nhà Rồng, Dinh Độc Lập...': 'Search Nha Rong Wharf, Independence Palace...',
     'Ứng dụng cần quyền vị trí để tìm di tích gần bạn.': 'Location access is required to find nearby landmarks.',
@@ -85,6 +93,17 @@ const translations = {
     'Thành viên từ tháng 10, 2026': 'Member since October 2026',
     'Thử lại': 'Retry',
     'Thử một từ khóa khác hoặc chọn danh mục khác.': 'Try another keyword or choose a different category.',
+    'Trải nghiệm 1 ngày Quận 1': 'A day exploring District 1',
+    'Đang tạo tuyến...': 'Creating route...',
+    'Mô phỏng 70-80 m': 'Simulate a 70–80 m walk',
+    'Đang mô phỏng di chuyển': 'Simulating movement',
+    'Đang đi vào vòng di tích': 'Approaching the landmark boundary',
+    'Đã đến điểm tham quan': 'You have arrived',
+    'Bắt đầu đi': 'Start walking',
+    'Đi vào vòng xoay': 'Enter the roundabout',
+    'Nhập vào đường': 'Merge onto the road',
+    'Tiếp tục đi': 'Continue',
+    'dưới 1 phút': 'under 1 minute',
     'Tìm câu chuyện': 'Find a story',
     'Tìm quanh đây': 'Find nearby',
     'Tạm dừng': 'Pause',
@@ -121,8 +140,26 @@ const translations = {
     'Chọn ngôn ngữ thuyết minh': '音声ガイドの言語を選択',
     'Mở Di Tích Q1 trên điện thoại': 'スマートフォンでDi Tich Q1を開く',
     'Dùng camera điện thoại quét mã QR': 'スマートフォンのカメラでQRコードを読み取ってください',
+    'Bến Nhà Rồng': 'ベンニャロン埠頭',
+    'Dinh Độc Lập': '統一会堂',
+    'Nhà thờ Đức Bà Sài Gòn': 'サイゴン大教会',
+    'Bưu điện Trung tâm Sài Gòn': 'サイゴン中央郵便局',
+    'Nhà hát Thành phố': 'サイゴン・オペラハウス',
+    'Chợ Bến Thành': 'ベンタイン市場',
+    'Bảo tàng Thành phố Hồ Chí Minh': 'ホーチミン市博物館',
+    'Bảo tàng Tôn Đức Thắng': 'トン・ドゥック・タン博物館',
     'Tìm di tích, đường phố...': '史跡や通りを検索...',
     'Thành viên từ tháng 10, 2026': '2026年10月からのメンバー',
+    'Đang tạo tuyến...': 'ルートを作成中...',
+    'Mô phỏng 70-80 m': '70～80 mの歩行をシミュレーション',
+    'Đang mô phỏng di chuyển': '移動をシミュレーション中',
+    'Đang đi vào vòng di tích': '史跡の周辺に近づいています',
+    'Đã đến điểm tham quan': '目的地に到着しました',
+    'Bắt đầu đi': '歩き始める',
+    'Đi vào vòng xoay': 'ロータリーに入る',
+    'Nhập vào đường': '道路に合流する',
+    'Tiếp tục đi': 'そのまま進む',
+    'dưới 1 phút': '1分未満',
     'Tìm Bến Nhà Rồng, Dinh Độc Lập...': 'ベンニャロン埠頭や統一会堂を検索...',
     'Ứng dụng cần quyền vị trí để tìm di tích gần bạn.': '近くの史跡を探すには位置情報へのアクセスが必要です。',
     'Không có di tích nào trong bán kính 2km quanh bạn.': '半径2km以内に史跡はありません。',
@@ -223,8 +260,26 @@ const translations = {
     'Chọn ngôn ngữ thuyết minh': '选择语音讲解语言',
     'Mở Di Tích Q1 trên điện thoại': '在手机上打开Di Tich Q1',
     'Dùng camera điện thoại quét mã QR': '使用手机相机扫描此二维码',
+    'Bến Nhà Rồng': '龙屋码头',
+    'Dinh Độc Lập': '统一宫',
+    'Nhà thờ Đức Bà Sài Gòn': '西贡圣母大教堂',
+    'Bưu điện Trung tâm Sài Gòn': '西贡中央邮局',
+    'Nhà hát Thành phố': '西贡歌剧院',
+    'Chợ Bến Thành': '滨城市场',
+    'Bảo tàng Thành phố Hồ Chí Minh': '胡志明市博物馆',
+    'Bảo tàng Tôn Đức Thắng': '孙德胜博物馆',
     'Tìm di tích, đường phố...': '搜索历史遗迹和街道...',
     'Thành viên từ tháng 10, 2026': '自2026年10月起加入',
+    'Đang tạo tuyến...': '正在创建路线...',
+    'Mô phỏng 70-80 m': '模拟步行70至80米',
+    'Đang mô phỏng di chuyển': '正在模拟移动',
+    'Đang đi vào vòng di tích': '正在接近遗迹范围',
+    'Đã đến điểm tham quan': '已到达景点',
+    'Bắt đầu đi': '开始步行',
+    'Đi vào vòng xoay': '进入环岛',
+    'Nhập vào đường': '并入道路',
+    'Tiếp tục đi': '继续前行',
+    'dưới 1 phút': '不到1分钟',
     'Tìm Bến Nhà Rồng, Dinh Độc Lập...': '搜索龙屋码头、统一宫...',
     'Ứng dụng cần quyền vị trí để tìm di tích gần bạn.': '查找附近遗迹需要开启定位权限。',
     'Không có di tích nào trong bán kính 2km quanh bạn.': '您周围2公里内没有历史遗迹。',
@@ -325,8 +380,26 @@ const translations = {
     'Chọn ngôn ngữ thuyết minh': 'Choisir la langue du guide audio',
     'Mở Di Tích Q1 trên điện thoại': 'Ouvrir Di Tich Q1 sur votre téléphone',
     'Dùng camera điện thoại quét mã QR': 'Scannez ce code QR avec l’appareil photo de votre téléphone',
+    'Bến Nhà Rồng': 'Quai de la Maison du Dragon',
+    'Dinh Độc Lập': 'Palais de l’Indépendance',
+    'Nhà thờ Đức Bà Sài Gòn': 'Cathédrale Notre-Dame de Saïgon',
+    'Bưu điện Trung tâm Sài Gòn': 'Poste centrale de Saïgon',
+    'Nhà hát Thành phố': 'Opéra de Saïgon',
+    'Chợ Bến Thành': 'Marché Bến Thành',
+    'Bảo tàng Thành phố Hồ Chí Minh': 'Musée de Hô Chi Minh-Ville',
+    'Bảo tàng Tôn Đức Thắng': 'Musée Tôn Đức Thắng',
     'Tìm di tích, đường phố...': 'Rechercher des sites et des rues...',
     'Thành viên từ tháng 10, 2026': 'Membre depuis octobre 2026',
+    'Đang tạo tuyến...': 'Création de l’itinéraire…',
+    'Mô phỏng 70-80 m': 'Simuler une marche de 70 à 80 m',
+    'Đang mô phỏng di chuyển': 'Déplacement simulé en cours',
+    'Đang đi vào vòng di tích': 'Approche de la limite du site',
+    'Đã đến điểm tham quan': 'Vous êtes arrivé à destination',
+    'Bắt đầu đi': 'Commencer à marcher',
+    'Đi vào vòng xoay': 'Entrer dans le rond-point',
+    'Nhập vào đường': 'S’insérer sur la route',
+    'Tiếp tục đi': 'Continuer',
+    'dưới 1 phút': 'moins d’une minute',
     'Tìm Bến Nhà Rồng, Dinh Độc Lập...': 'Rechercher le quai de la Maison du Dragon, le Palais de la Réunification...',
     'Ứng dụng cần quyền vị trí để tìm di tích gần bạn.': 'La localisation est nécessaire pour trouver les sites à proximité.',
     'Không có di tích nào trong bán kính 2km quanh bạn.': 'Aucun site historique à moins de 2 km.',
@@ -420,6 +493,53 @@ export const translateUiText = (value, language = 'vi') => {
   const leadingWhitespace = value.slice(0, value.length - value.trimStart().length);
   const trailingWhitespace = value.slice(value.trimEnd().length);
   if (dictionary[text]) return `${leadingWhitespace}${dictionary[text]}${trailingWhitespace}`;
+
+  const savedStories = text.match(/^(\d+)\s+câu chuyện\s*\n\s*đang đợi bạn\.$/);
+  if (savedStories) {
+    const count = Number(savedStories[1]);
+    const savedStoryLabels = {
+      en: `${count} ${count === 1 ? 'story is' : 'stories are'} waiting for you.`,
+      ja: `${count}個の物語があなたを待っています。`,
+      zh: `${count}个故事正等待您的探索。`,
+      fr: `${count} ${count === 1 ? 'histoire vous attend.' : 'histoires vous attendent.'}`,
+    };
+    if (savedStoryLabels[language]) {
+      return `${leadingWhitespace}${savedStoryLabels[language]}${trailingWhitespace}`;
+    }
+  }
+
+  const visitCount = text.match(/^(\d+)\s+ĐIỂM THAM QUAN$/);
+  if (visitCount) {
+    const count = Number(visitCount[1]);
+    const visitLabels = {
+      en: `${count} ${count === 1 ? 'LANDMARK' : 'LANDMARKS'}`,
+      ja: `${count}か所のスポット`,
+      zh: `${count}个景点`,
+      fr: `${count} ${count === 1 ? 'SITE' : 'SITES'}`,
+    };
+    if (visitLabels[language]) {
+      return `${leadingWhitespace}${visitLabels[language]}${trailingWhitespace}`;
+    }
+  }
+
+  const audioGuideDuration = text.match(/^(.+?)\s+thuyết minh$/);
+  if (audioGuideDuration) {
+    const audioGuideLabels = {
+      en: 'audio guide',
+      ja: '音声ガイド',
+      zh: '语音讲解',
+      fr: 'guide audio',
+    };
+    if (audioGuideLabels[language]) {
+      const separator = language === 'ja' || language === 'zh' ? '' : ' ';
+      return `${leadingWhitespace}${audioGuideDuration[1]}${separator}${audioGuideLabels[language]}${trailingWhitespace}`;
+    }
+  }
+
+  const currentLocationAccuracy = text.match(/^Vị trí hiện tại( · ±.+)$/);
+  if (currentLocationAccuracy && dictionary['Vị trí hiện tại']) {
+    return `${leadingWhitespace}${dictionary['Vị trí hiện tại']}${currentLocationAccuracy[1]}${trailingWhitespace}`;
+  }
 
   const dynamicPrefix = Object.keys(dictionary).find((key) =>
     (key.endsWith(' (') || key.endsWith(' ·')) && text.startsWith(key)
