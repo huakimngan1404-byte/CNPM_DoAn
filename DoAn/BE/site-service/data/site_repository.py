@@ -98,6 +98,24 @@ DEFAULT_LANGUAGES = (
 
 
 class SiteRepository:
+    async def get_ready_audio_asset_ids(self, translations):
+        asset_ids = {
+            record.get("audio_asset_id")
+            for record in translations
+            if isinstance(record.get("audio_asset_id"), str)
+            and record.get("audio_url")
+        }
+        if not asset_ids:
+            return set()
+        cursor = db.audio_assets.find(
+            {
+                "_id": {"$in": list(asset_ids)},
+                "data": {"$type": "binData"},
+            },
+            {"_id": 1},
+        )
+        return {asset["_id"] async for asset in cursor}
+
     async def ensure_language_catalog(self):
         for language in DEFAULT_LANGUAGES:
             await db.languages.update_one(
@@ -109,6 +127,11 @@ class SiteRepository:
     async def get_admin_narrations(self):
         cursor = db.translations.find({}).sort("updated_at", -1)
         translations = [record async for record in cursor]
+        ready_audio_ids = await self.get_ready_audio_asset_ids(translations)
+        translations = [
+            record for record in translations
+            if record.get("audio_asset_id") in ready_audio_ids
+        ]
         site_codes = {record.get("site_code") for record in translations if record.get("site_code")}
         language_codes = {record.get("lang") for record in translations if record.get("lang")}
         sites = {}
@@ -134,6 +157,8 @@ class SiteRepository:
                 "site_code": record.get("site_code", ""),
                 "site_name": sites.get(record.get("site_code"), {}).get("name", record.get("site_code", "")),
                 "lang": record.get("lang", ""),
+                "audio_url": record["audio_url"],
+                "has_audio": True,
                 "language_name": languages.get(record.get("lang"), {}).get("name", record.get("lang", "").upper()),
                 "language_flag": languages.get(record.get("lang"), {}).get("flag", ""),
                 "is_active": languages.get(record.get("lang"), {}).get("is_active", True)
@@ -298,12 +323,25 @@ class SiteRepository:
         if site_codes:
             translations = db.translations.find(
                 {"site_code": {"$in": site_codes}},
-                {"_id": 0, "site_code": 1, "lang": 1},
+                {
+                    "_id": 0,
+                    "site_code": 1,
+                    "lang": 1,
+                    "audio_asset_id": 1,
+                    "audio_url": 1,
+                },
             )
-            async for translation in translations:
+            translation_records = [translation async for translation in translations]
+            ready_audio_ids = await self.get_ready_audio_asset_ids(translation_records)
+            for translation in translation_records:
                 site_code = translation.get("site_code")
                 language = translation.get("lang")
-                if isinstance(site_code, str) and isinstance(language, str) and language:
+                if (
+                    isinstance(site_code, str)
+                    and isinstance(language, str)
+                    and language
+                    and translation.get("audio_asset_id") in ready_audio_ids
+                ):
                     languages_by_site.setdefault(site_code, set()).add(language)
 
         for site in sites:
