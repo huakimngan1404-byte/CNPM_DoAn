@@ -367,11 +367,13 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
 function Dashboard({ sites, languages, onNavigate }) {
   const activeCount = sites.filter((site) => site.status === 'Đang hoạt động').length;
   const activeLanguages = languages.filter((language) => language.is_active);
-  const narrationCount = sites.length * activeLanguages.length;
+  const [narrationCount, setNarrationCount] = useState(null);
+  const [narrationLoadError, setNarrationLoadError] = useState('');
   const [activeVisitors, setActiveVisitors] = useState(null);
   const [visitorError, setVisitorError] = useState('');
   const [recentActivity, setRecentActivity] = useState([]);
   const [activityError, setActivityError] = useState('');
+  const [featuredPage, setFeaturedPage] = useState(0);
   const [listenPeriod, setListenPeriod] = useState('day');
   const [listenDate, setListenDate] = useState(() => {
     const now = new Date();
@@ -380,6 +382,22 @@ function Dashboard({ sites, languages, onNavigate }) {
   const [listenDevice, setListenDevice] = useState('all');
   const [listenStats, setListenStats] = useState(null);
   const [listenError, setListenError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    fetchAdminNarrations()
+      .then((narrations) => {
+        if (!active) return;
+        setNarrationCount(narrations.length);
+        setNarrationLoadError('');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setNarrationCount(null);
+        setNarrationLoadError(error.message);
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -462,13 +480,28 @@ function Dashboard({ sites, languages, onNavigate }) {
     : [0, Math.round((chartPoints.length - 1) / 4), Math.round((chartPoints.length - 1) / 2), Math.round(((chartPoints.length - 1) * 3) / 4), chartPoints.length - 1];
   const chartLabels = [...new Set(chartLabelIndexes)].map((index) => chartPoints[index]);
   const chartScale = [1, 0.75, 0.5, 0.25, 0].map((ratio) => Math.round(chartMaximum * ratio));
-  const topSitesData = (listenStats?.top_sites ?? []).map((site, index) => ({
-    id: site.site_code,
-    title: site.site_name,
-    listens: site.count,
-    tone: ['orange', 'blue', 'green', 'violet'][index % 4],
-  }));
+  const listenCountsBySite = new Map(
+    (listenStats?.top_sites ?? []).map((site) => [site.site_code, site.count]),
+  );
+  const topSitesData = sites
+    .map((site) => ({
+      id: site.code || site.id || site.name,
+      title: site.name,
+      listens: listenCountsBySite.get(site.code) ?? 0,
+    }))
+    .sort((first, second) => second.listens - first.listens)
+    .map((site, index) => ({
+      ...site,
+      tone: ['orange', 'blue', 'green', 'violet'][index % 4],
+    }));
   const maxListens = Math.max(1, ...topSitesData.map((site) => site.listens));
+  const featuredPageSize = 5;
+  const featuredPageCount = Math.ceil(topSitesData.length / featuredPageSize);
+  const visibleFeaturedPage = Math.min(featuredPage, Math.max(0, featuredPageCount - 1));
+  const visibleTopSites = topSitesData.slice(
+    visibleFeaturedPage * featuredPageSize,
+    (visibleFeaturedPage + 1) * featuredPageSize,
+  );
   const periodDescription = listenPeriod === 'day'
     ? new Date(`${listenDate}T12:00:00`).toLocaleDateString('vi-VN')
     : new Date(`${requestedListenDate}-01T12:00:00`).toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
@@ -484,9 +517,10 @@ function Dashboard({ sites, languages, onNavigate }) {
           <section className="stats-grid">
             <StatCard label="Người đang truy cập" value={activeVisitors === null ? '—' : String(activeVisitors)} icon={Headphones} iconTone="blue" />
             <StatCard label="Điểm di tích" value={String(sites.length)} icon={MapPin} iconTone="orange" />
-            <StatCard label="Bài thuyết minh" value={String(narrationCount)} icon={AudioLines} iconTone="violet" />
+            <StatCard label="Bài thuyết minh" value={narrationCount === null ? '—' : String(narrationCount)} icon={AudioLines} iconTone="violet" />
             <StatCard label="Ngôn ngữ hỗ trợ" value={String(activeLanguages.length)} icon={Globe2} iconTone="green" />
           </section>
+          {narrationLoadError && <div className="dashboard-data-error" role="alert">Không tải được số bài thuyết minh: {narrationLoadError}</div>}
 
           <div className="panel listening-panel">
             <div className="panel-heading">
@@ -547,16 +581,15 @@ function Dashboard({ sites, languages, onNavigate }) {
         {/* CỘT PHẢI */}
         <div className="dashboard-right-column">
           <div className="panel top-places-panel">
-            <div className="panel-heading"><div><h3>Di tích nổi bật</h3><p>Được nghe nhiều nhất trong kỳ đã chọn</p></div><button className="more-button" aria-label="Tùy chọn"><MoreHorizontal size={20} /></button></div>
+            <div className="panel-heading"><div><h3>Di tích nổi bật</h3><p>Xếp theo lượt nghe trong kỳ đã chọn</p></div><button className="more-button" aria-label="Tùy chọn"><MoreHorizontal size={20} /></button></div>
             
-            {/* RENDER DANH SÁCH 8 DI TÍCH TỰ ĐỘNG */}
             <div className="top-place-list">
-              {topSitesData.map((site, index) => {
+              {visibleTopSites.map((site, index) => {
                 const percent = Math.round((site.listens / maxListens) * 100);
                 return (
                   <TopPlace 
                     key={site.id}
-                    rank={`0${index + 1}`.slice(-2)} 
+                    rank={String(visibleFeaturedPage * featuredPageSize + index + 1).padStart(2, '0')}
                     title={site.title} 
                     subtitle="Lượt nghe" 
                     value={site.listens.toLocaleString('vi-VN')} 
@@ -565,8 +598,15 @@ function Dashboard({ sites, languages, onNavigate }) {
                   />
                 );
               })}
-              {topSitesData.length === 0 && <div className="empty-state"><AudioLines size={23} /><strong>Chưa có lượt nghe</strong><span>Dữ liệu sẽ xuất hiện khi có người bắt đầu nghe thuyết minh.</span></div>}
+              {topSitesData.length === 0 && <div className="empty-state"><MapPin size={23} /><strong>Chưa có di tích</strong><span>Thêm di tích trong mục Quản lý di tích để xem tại đây.</span></div>}
             </div>
+            {featuredPageCount > 1 && <div className="top-place-pagination">
+              <span>{visibleFeaturedPage + 1} / {featuredPageCount}</span>
+              <div>
+                <button aria-label="Trang di tích trước" disabled={visibleFeaturedPage === 0} onClick={() => setFeaturedPage(visibleFeaturedPage - 1)}><ChevronLeft size={15} /></button>
+                <button aria-label="Trang di tích tiếp theo" disabled={visibleFeaturedPage >= featuredPageCount - 1} onClick={() => setFeaturedPage(visibleFeaturedPage + 1)}><ChevronRight size={15} /></button>
+              </div>
+            </div>}
 
             <button className="panel-link" onClick={() => onNavigate('places')}>Xem tất cả di tích <ArrowRight size={15} /></button>
           </div>

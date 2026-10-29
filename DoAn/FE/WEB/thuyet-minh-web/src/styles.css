@@ -126,6 +126,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .stat-change { display: inline-flex; align-items: center; gap: 2px; padding: 3px 5px; border-radius: 4px; color: #838a95; background: #f2f3f5; font-size: 9px; font-weight: 600; }
 .stat-change.positive { color: #279370; background: #e9f7f1; }
 .stat-note { display: block; margin-top: 7px; color: #a0a6b0; font-size: 9px; }
+.dashboard-data-error { padding: 9px 11px; border-radius: 6px; color: #a4473b; background: #fff0ed; font-size: 10px; }
 
 .analytics-grid { display: grid; grid-template-columns: minmax(0,1.78fr) minmax(280px,1fr); gap: 14px; }
 .panel { padding: 17px 18px; }
@@ -167,6 +168,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .top-place-score strong { color: #4a505a; font-size: 10px; font-weight: 700; }
 .mini-progress { height: 3px; margin-top: 5px; overflow: hidden; border-radius: 4px; background: #f0f1f3; }
 .mini-progress i { display: block; height: 100%; border-radius: 4px; background: #ed795a; }
+.top-place-pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 9px; color: #969daa; font-size: 9px; }
+.top-place-pagination > div { display: flex; gap: 4px; }
+.top-place-pagination button { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid #e9ebef; border-radius: 5px; color: #7d8591; background: #fff; cursor: pointer; }
+.top-place-pagination button:disabled { color: #c4c8ce; background: #f8f9fa; cursor: not-allowed; }
 .panel-link { justify-content: center; margin-top: 11px; }
 
 .bottom-grid { display: grid; grid-template-columns: minmax(0,1.78fr) minmax(280px,1fr); gap: 14px; }
