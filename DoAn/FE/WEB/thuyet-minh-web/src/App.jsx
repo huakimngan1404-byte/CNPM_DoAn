@@ -383,6 +383,7 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
             <MapPage
               notify={notify}
               sites={sites}
+              languages={languages.filter((language) => language.is_active)}
               onSiteRadiusChange={(code, radius) => setSites((current) => current.map(
                 (site) => site.code === code ? { ...site, radius } : site,
               ))}
@@ -1411,11 +1412,26 @@ function routeToGeofence(coordinates, site, radius) {
   for (let index = 1; index < coordinates.length; index += 1) {
     const previous = coordinates[index - 1];
     const current = coordinates[index];
-    if (distanceFromSite(previous, site) <= radius
-      || distanceFromSite(current, site) > radius) continue;
+    if (distanceFromSite(previous, site) <= radius) continue;
+
+    const latitudeScale = 111320;
+    const longitudeScale = latitudeScale * Math.cos(site.lat * Math.PI / 180);
+    const startX = (previous[0] - site.lng) * longitudeScale;
+    const startY = (previous[1] - site.lat) * latitudeScale;
+    const segmentX = (current[0] - previous[0]) * longitudeScale;
+    const segmentY = (current[1] - previous[1]) * latitudeScale;
+    const segmentLengthSquared = segmentX ** 2 + segmentY ** 2;
+    const closestFraction = segmentLengthSquared
+      ? Math.min(1, Math.max(0, -(startX * segmentX + startY * segmentY) / segmentLengthSquared))
+      : 0;
+    const closestPoint = [
+      previous[0] + (current[0] - previous[0]) * closestFraction,
+      previous[1] + (current[1] - previous[1]) * closestFraction,
+    ];
+    if (distanceFromSite(closestPoint, site) > radius) continue;
 
     let outside = 0;
-    let inside = 1;
+    let inside = closestFraction;
     for (let iteration = 0; iteration < 20; iteration += 1) {
       const fraction = (outside + inside) / 2;
       const point = [
@@ -1434,10 +1450,11 @@ function routeToGeofence(coordinates, site, radius) {
   return coordinates;
 }
 
-function MapPage({ notify, sites, onSiteRadiusChange }) {
+function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
   const [currentLocation, setCurrentLocation] = useState(null);
   const [gpsWatching, setGpsWatching] = useState(false);
   const [selectedSiteCode, setSelectedSiteCode] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('vi');
   const [radiusDraft, setRadiusDraft] = useState(100);
   const [savingRadius, setSavingRadius] = useState(false);
   const [fitAllRequest, setFitAllRequest] = useState(0);
@@ -1447,7 +1464,12 @@ function MapPage({ notify, sites, onSiteRadiusChange }) {
   const [simulation, setSimulation] = useState(null);
   const [simulationLoading, setSimulationLoading] = useState(false);
   const [simulationError, setSimulationError] = useState('');
+  const [simulationAudioUrl, setSimulationAudioUrl] = useState('');
+  const [simulationAudioStatus, setSimulationAudioStatus] = useState('idle');
+  const [simulationAudioError, setSimulationAudioError] = useState('');
   const watchId = useRef(null);
+  const simulationAudioRef = useRef(null);
+  const audioRequestId = useRef(0);
   const focusNextGpsLocation = useRef(false);
   const mappedSites = useMemo(() => sites.flatMap((site) => {
     const rawLat = site.lat ?? site.location?.coordinates?.[1];
@@ -1462,6 +1484,9 @@ function MapPage({ notify, sites, onSiteRadiusChange }) {
   const selectedSite = mappedSites.find((site) => site.code === selectedSiteCode)
     ?? mappedSites[0]
     ?? null;
+  const selectedLanguageName = languages.find(
+    (language) => language.code === selectedLanguage,
+  )?.name ?? selectedLanguage;
   const simulationLocation = simulation
     ? routeCoordinateAtProgress(
       simulation.coordinates,
@@ -1474,9 +1499,69 @@ function MapPage({ notify, sites, onSiteRadiusChange }) {
     setRadiusDraft(Number(selectedSite?.radius ?? 100));
   }, [selectedSite]);
 
+  useEffect(() => {
+    if (languages.length && !languages.some((language) => language.code === selectedLanguage)) {
+      setSelectedLanguage(languages[0].code);
+    }
+  }, [languages, selectedLanguage]);
+
   useEffect(() => () => {
     if (watchId.current !== null) navigator.geolocation?.clearWatch(watchId.current);
+    simulationAudioRef.current?.pause();
   }, []);
+
+  useEffect(() => {
+    if (simulation?.status !== 'arrived' || !selectedSite?.code) return undefined;
+    let active = true;
+    const requestId = ++audioRequestId.current;
+    simulationAudioRef.current?.pause();
+    setSimulationAudioUrl('');
+    setSimulationAudioStatus('loading');
+    setSimulationAudioError('');
+
+    fetchSiteNarration(selectedSite.code, selectedLanguage)
+      .then((narration) => {
+        if (!active || requestId !== audioRequestId.current) return;
+        if (typeof narration.audio_url !== 'string' || !narration.audio_url) {
+          throw new Error(`Chưa có bài thuyết minh bằng ${selectedLanguageName}.`);
+        }
+        const audioUrl = narration.audio_url.startsWith('http')
+          ? narration.audio_url
+          : `${apiBaseUrl}${narration.audio_url}`;
+        setSimulationAudioUrl(audioUrl);
+        setSimulationAudioStatus('ready');
+      })
+      .catch((error) => {
+        if (!active || requestId !== audioRequestId.current) return;
+        setSimulationAudioStatus('error');
+        setSimulationAudioError(error.message);
+      });
+
+    return () => {
+      active = false;
+      audioRequestId.current += 1;
+    };
+  }, [selectedLanguage, selectedLanguageName, selectedSite?.code, simulation?.status]);
+
+  useEffect(() => {
+    if (!simulationAudioUrl || !simulationAudioRef.current) return undefined;
+    let active = true;
+    const player = simulationAudioRef.current;
+    player.play()
+      .then(() => {
+        if (active) setSimulationAudioStatus('playing');
+      })
+      .catch((error) => {
+        if (active) {
+          setSimulationAudioStatus('blocked');
+          setSimulationAudioError(`Trình duyệt chặn tự phát audio. Nhấn Phát trên trình nghe bên dưới. ${error.message}`);
+        }
+      });
+    return () => {
+      active = false;
+      player.pause();
+    };
+  }, [simulationAudioUrl]);
 
   useEffect(() => {
     if (simulation?.status !== 'walking') return undefined;
@@ -1546,8 +1631,17 @@ function MapPage({ notify, sites, onSiteRadiusChange }) {
     }
   };
 
+  const resetSimulationAudio = () => {
+    audioRequestId.current += 1;
+    simulationAudioRef.current?.pause();
+    setSimulationAudioUrl('');
+    setSimulationAudioStatus('idle');
+    setSimulationAudioError('');
+  };
+
   const startSimulation = async () => {
     if (!selectedSite?.code) return;
+    resetSimulationAudio();
     setSimulationLoading(true);
     setSimulationError('');
     setSimulation(null);
@@ -1616,12 +1710,14 @@ function MapPage({ notify, sites, onSiteRadiusChange }) {
   };
 
   const selectSite = (site) => {
+    resetSimulationAudio();
     setSelectedSiteCode(site.code);
     setSimulation(null);
     setSimulationError('');
   };
 
   const stopSimulation = () => {
+    resetSimulationAudio();
     setSimulation(null);
     setSimulationError('');
   };
@@ -1720,6 +1816,18 @@ function MapPage({ notify, sites, onSiteRadiusChange }) {
             <p>Bán kính được lưu theo từng di tích và đồng bộ với ứng dụng.</p>
           </div>
           <div className="simulation-controls">
+            <label className="simulation-language">
+              <span>Ngôn ngữ thuyết minh</span>
+              <select
+                value={selectedLanguage}
+                onChange={(event) => setSelectedLanguage(event.target.value)}
+                disabled={!languages.length || simulationLoading}
+              >
+                {languages.map((language) => (
+                  <option key={language.code} value={language.code}>{language.name}</option>
+                ))}
+              </select>
+            </label>
             <button
               className="button button-secondary small-button"
               onClick={simulation?.status === 'walking' ? stopSimulation
@@ -1742,14 +1850,36 @@ function MapPage({ notify, sites, onSiteRadiusChange }) {
             )}
             {simulationError && <p className="simulation-error">{simulationError}</p>}
           </div>
+          {simulationAudioStatus !== 'idle' && (
+            <div className="simulation-audio">
+              <strong>
+                {simulationAudioStatus === 'loading'
+                  ? `Đang tải bài thuyết minh ${selectedLanguageName}…`
+                  : simulationAudioStatus === 'playing'
+                    ? `Đang phát bài thuyết minh ${selectedLanguageName}`
+                    : `Bài thuyết minh · ${selectedLanguageName}`}
+              </strong>
+              {simulationAudioUrl && (
+                <audio
+                  ref={simulationAudioRef}
+                  controls
+                  preload="none"
+                  src={simulationAudioUrl}
+                  onPlay={() => setSimulationAudioStatus('playing')}
+                  onPause={() => setSimulationAudioStatus((status) => (
+                    status === 'playing' ? 'ready' : status
+                  ))}
+                  onEnded={() => setSimulationAudioStatus('ended')}
+                  onError={() => {
+                    setSimulationAudioStatus('error');
+                    setSimulationAudioError('Không phát được audio của bài thuyết minh.');
+                  }}
+                />
+              )}
+              {simulationAudioError && <p className="simulation-error">{simulationAudioError}</p>}
+            </div>
+          )}
         </> : <p className="map-empty-inline">Chọn di tích có tọa độ trên bản đồ để chỉnh bán kính và chạy mô phỏng.</p>}
-      </div>
-      <div className="panel gps-help-panel">
-        <div className="gps-help-icon"><CircleHelp size={17} /></div>
-        <div>
-          <strong>Mô phỏng thử nghiệm</strong>
-          <p>Tuyến đi bộ được truy vấn từ dịch vụ OpenStreetMap. Vị trí mô phỏng chỉ dùng để kiểm tra, không ghi nhận lượt nghe.</p>
-        </div>
       </div>
     </section>
   </div>;

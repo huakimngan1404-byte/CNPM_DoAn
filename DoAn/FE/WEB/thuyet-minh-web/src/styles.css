@@ -246,7 +246,7 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .map-legend i { width: 5px; height: 5px; margin-left: 3px; border-radius: 50%; background: #e95d40; }
 .map-legend i.legend-warn { background: #dfa23c; }
 .footer { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 13px 37px 17px; border-top: 1px solid #eceef1; color: #a0a6af; font-size: 8px; }
-.system-status { display: flex; align-items: center; gap: 5px; }
+.system-status { display: flex; align-items: center; gap: 5px; font-size: 10px; }
 .system-status i { width: 6px; height: 6px; border-radius: 50%; background: #4caf86; box-shadow: 0 0 0 3px #4caf8618; }
 
 /* Management screens */
@@ -371,7 +371,7 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .gps-online { display: inline-flex; align-items: center; gap: 5px; color: #4a9c7c; font-size: 8px; font-weight: 700; letter-spacing: .5px; }
 .gps-online i { width: 6px; height: 6px; border-radius: 50%; background: #50b48c; }
 .gps-status-panel h3 { margin: 14px 0 6px; font: 700 13px 'Manrope',sans-serif; }
-.gps-status-panel > p, .gps-help-panel p { margin: 0; color: #8e96a2; font-size: 9px; line-height: 1.7; }
+.gps-status-panel > p { margin: 0; color: #8e96a2; font-size: 9px; line-height: 1.7; }
 .gps-online.gps-offline { color: #9098a2; }
 .gps-online.gps-offline i { background: #b7bdc5; }
 .map-site-details { display: flex; flex-direction: column; gap: 4px; margin-top: 16px; padding: 11px; border: 1px solid #edf0f3; border-radius: 7px; background: #fafbfc; }
@@ -392,12 +392,13 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .simulation-controls .button { justify-content: center; }
 .simulation-controls > p { margin: 0; color: #6f7a88; font-size: 9px; line-height: 1.6; }
 .simulation-controls .simulation-error { color: #a4473b; }
+.simulation-language { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #737c89; font-size: 9px; }
+.simulation-language select { max-width: 150px; height: 30px; padding: 0 7px; border: 1px solid #e5e8ec; border-radius: 5px; color: #535b66; background: #fff; font-size: 9px; }
+.simulation-audio { display: flex; flex-direction: column; gap: 7px; margin-top: 11px; padding: 10px; border: 1px solid #f0e7e2; border-radius: 7px; background: #fffcfa; }
+.simulation-audio strong { color: #4b535f; font-size: 9px; line-height: 1.5; }
+.simulation-audio audio { width: 100%; height: 34px; }
+.simulation-audio p { margin: 0; }
 .map-empty-inline { margin-top: 16px !important; }
-.gps-help-panel { display: flex; align-items: flex-start; gap: 9px; padding: 13px; background: #f9fbff; }
-.gps-help-icon { display: grid; width: 25px; height: 25px; flex: 0 0 auto; place-items: center; border-radius: 7px; color: #6685c1; background: #edf2fc; }
-.gps-help-panel strong { display: block; margin: 1px 0 4px; color: #596372; font-size: 9px; }
-.gps-help-panel p { font-size: 8px; }
-
 .settings-panel { max-width: 760px; padding: 19px; }
 .settings-form { display: flex; max-width: 540px; flex-direction: column; gap: 15px; margin-top: 22px; }
 .settings-form > label, .modal-body > label, .form-columns > label { display: flex; flex-direction: column; gap: 7px; color: #626a76; font-size: 10px; font-weight: 600; }

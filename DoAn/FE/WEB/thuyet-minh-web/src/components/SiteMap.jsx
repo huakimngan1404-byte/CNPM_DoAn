@@ -78,9 +78,10 @@ export default function SiteMap({
       center={center}
       zoom={14}
       scrollWheelZoom
+      attributionControl={false}
     >
       <TileLayer
-        attribution='Sources: Esri, HERE, Garmin, Intermap, increment P Corp., GEBCO, USGS, FAO, NPS, NRCAN, GeoBase, IGN, Kadaster NL, Ordnance Survey, Esri Japan, METI, Esri China (Hong Kong), &copy; OpenStreetMap contributors, GIS User Community'
+        attribution=""
         url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}"
       />
       <MapViewport
