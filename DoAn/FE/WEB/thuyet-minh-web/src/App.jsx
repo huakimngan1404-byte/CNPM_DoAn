@@ -861,9 +861,8 @@ function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setSta
         <button className="button button-secondary small-button" onClick={() => setStatusFilter('Tất cả trạng thái')}><Filter size={15} /> Bộ lọc</button>
       </div>
       <div className="places-table-wrap">
-        <table className="places-table"><thead><tr><th><input type="checkbox" aria-label="Chọn tất cả" /></th><th>TÊN DI TÍCH</th><th>VỊ TRÍ</th><th>NGÔN NGỮ</th><th>TRẠNG THÁI</th><th /></tr></thead>
+        <table className="places-table"><thead><tr><th>TÊN DI TÍCH</th><th>VỊ TRÍ</th><th>NGÔN NGỮ</th><th>TRẠNG THÁI</th><th /></tr></thead>
           <tbody>{sites.map((site) => <tr key={site.id}>
-            <td><input type="checkbox" aria-label={`Chọn ${site.name}`} /></td>
             <td><div className="place-cell"><PlaceThumb site={site} /><div><strong>{site.name}</strong><small>{site.category}</small></div></div></td>
             <td className="address-cell"><MapPin size={13} />{site.address}</td>
             <td><LanguagePills codes={site.languages} /></td>
