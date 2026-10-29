@@ -22,7 +22,7 @@ import {
   heartbeatVisitor, leaveVisitor, recordNarrationListen,
 } from './src/services/api.js';
 import MapCanvas from './src/components/MapCanvas';
-import { translateUiText } from './src/i18n.js';
+import { translateLanguageName, translateUiText } from './src/i18n.js';
 
 const UiLanguageContext = createContext('vi');
 
@@ -731,8 +731,23 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
   const [carouselWidth, setCarouselWidth] = useState(0);
   const carouselRef = useRef(null);
   const carouselDrag = useMouseDragScroll();
-  const nearbyDrag = useMouseDragScroll();
+  const [nearbyPage, setNearbyPage] = useState(0);
+  const [nearbyWidth, setNearbyWidth] = useState(0);
   const featured = siteList.slice(0, 3);
+  const nearbyColumns = Math.max(1, Math.min(4, Math.floor((nearbyWidth + 10) / 234)));
+  const nearbyPageCount = Math.max(1, Math.ceil(siteList.length / nearbyColumns));
+  const currentNearbyPage = Math.min(nearbyPage, nearbyPageCount - 1);
+  const nearbySites = siteList.slice(
+    currentNearbyPage * nearbyColumns,
+    (currentNearbyPage + 1) * nearbyColumns,
+  );
+  const nearbyCardWidth = nearbyWidth
+    ? Math.min(270, (nearbyWidth - 16 - (nearbyColumns - 1) * 10) / nearbyColumns)
+    : 224;
+
+  useEffect(() => {
+    setNearbyPage((current) => Math.min(current, nearbyPageCount - 1));
+  }, [nearbyPageCount]);
 
   useEffect(() => {
     if (!carouselWidth || !featured.length) return undefined;
@@ -816,10 +831,46 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
           <Text style={styles.sectionTitle}>Điểm đến quanh bạn</Text>
         </View>
       </View> 
-      
-      <ScrollView {...nearbyDrag} horizontal showsHorizontalScrollIndicator={false} onWheel={Platform.OS === 'web' ? scrollHorizontallyWithWheel : undefined} contentContainerStyle={styles.horizontalCards}>
-        {siteList.slice(1, 5).map((site) => <MiniPlaceCard key={site.id} site={site} onPress={() => onOpenSite(site)} />)}
-      </ScrollView>
+
+      {!!siteList.length && <>
+        <View
+          style={styles.nearbyPage}
+          onLayout={(event) => {
+            const nextWidth = event.nativeEvent.layout.width;
+            setNearbyWidth((current) => current === nextWidth ? current : nextWidth);
+          }}
+        >
+          {nearbySites.map((site) => (
+            <MiniPlaceCard
+              key={site.id}
+              site={site}
+              width={nearbyCardWidth}
+              onPress={() => onOpenSite(site)}
+            />
+          ))}
+        </View>
+        {nearbyPageCount > 1 && <View style={styles.nearbyPagination}>
+          <Pressable
+            style={[styles.nearbyPageButton, currentNearbyPage === 0 && styles.nearbyPageButtonDisabled]}
+            onPress={() => setNearbyPage((current) => Math.max(0, current - 1))}
+            disabled={currentNearbyPage === 0}
+            accessibilityRole="button"
+            accessibilityLabel={translateUiText('Trang trước', language.id)}
+          >
+            <ArrowLeft size={15} color={currentNearbyPage === 0 ? '#B9B2AC' : ink} />
+          </Pressable>
+          <Text style={styles.nearbyPageCount}>{currentNearbyPage + 1} / {nearbyPageCount}</Text>
+          <Pressable
+            style={[styles.nearbyPageButton, currentNearbyPage === nearbyPageCount - 1 && styles.nearbyPageButtonDisabled]}
+            onPress={() => setNearbyPage((current) => Math.min(nearbyPageCount - 1, current + 1))}
+            disabled={currentNearbyPage === nearbyPageCount - 1}
+            accessibilityRole="button"
+            accessibilityLabel={translateUiText('Trang sau', language.id)}
+          >
+            <ArrowRight size={15} color={currentNearbyPage === nearbyPageCount - 1 ? '#B9B2AC' : ink} />
+          </Pressable>
+        </View>}
+      </>}
 
       <View style={styles.homeFooter}><ShieldMark /><Text>Khám phá di sản · Lắng nghe câu chuyện</Text></View>
     </ScrollView>
@@ -882,13 +933,13 @@ function QuickAction({ icon: Icon, label, tone, onPress }) {
   return <Pressable style={styles.quickAction} onPress={onPress}><View style={[styles.quickIcon, styles[`quickIcon_${tone}`]]}><Icon size={18} color={styles[`quickColor_${tone}`].color} /></View><Text style={styles.quickLabel}>{label}</Text></Pressable>;
 }
 
-function MiniPlaceCard({ site, onPress }) {
+function MiniPlaceCard({ site, onPress, width = 224 }) {
   const paint = Array.isArray(site.paint) && site.paint.length >= 3
     ? site.paint
     : ['#312723', '#91654B', '#E2B78B'];
   
   return (
-    <Pressable style={styles.miniPlaceCard} onPress={onPress}>
+    <Pressable style={[styles.miniPlaceCard, { width }]} onPress={onPress}>
       <View style={[styles.miniArtwork, { backgroundColor: paint[0] }]}>
         {site.image ? (
           <ImageBackground source={site.image} style={StyleSheet.absoluteFill} resizeMode="cover">
@@ -1003,6 +1054,7 @@ function ExploreCard({ site, index, saved, onPress, onSave }) {
 }
 
 function DetailScreen({ site, sites: siteList, language, playing, audioLoading, audioError, elapsed, duration, isSaved, onBack, onPlay, onSeek, onSave, onLanguage, onOpenSite }) {
+  const interfaceLanguage = useContext(UiLanguageContext);
   if (!site) return null;
   site = {
         ...site,
@@ -1032,7 +1084,7 @@ function DetailScreen({ site, sites: siteList, language, playing, audioLoading, 
       </View>
       <View style={styles.detailContent}>
         <View style={styles.detailAudioCard}>
-          <View style={styles.audioCardTop}><View style={styles.audioLangRow}><View style={styles.audioLangIcon}><Text>{language.flag}</Text></View><Text style={styles.audioLangName}>{language.name}</Text></View><Pressable style={styles.audioChangeLang} onPress={onLanguage}><Languages size={15} color="#756E68" /><ChevronDown size={12} color="#756E68" /></Pressable></View>
+          <View style={styles.audioCardTop}><View style={styles.audioLangRow}><View style={styles.audioLangIcon}><Text>{language.flag}</Text></View><Text style={styles.audioLangName}>{translateLanguageName(language.id, language.name, interfaceLanguage)}</Text></View><Pressable style={styles.audioChangeLang} onPress={onLanguage}><Languages size={15} color="#756E68" /><ChevronDown size={12} color="#756E68" /></Pressable></View>
           <View style={styles.audioTrack}><View style={styles.audioTimeRow}><Text style={styles.audioTimeCurrent}>{formatDuration(elapsed)}</Text><Text style={styles.audioTimeText}>{duration > 0 ? formatDuration(duration) : '--:--'}</Text></View><View style={styles.audioProgress}><View style={[styles.audioProgressFill, { width: progress }]} /><View style={[styles.audioKnob, { left: progress }]} /></View></View>
           <View style={styles.audioControlRow}><Pressable style={styles.skipButton} onPress={() => onSeek(-15)} accessibilityLabel="Lùi 15 giây"><RotateCcw size={15} color="#77716A" /></Pressable><Pressable style={styles.largePlay} onPress={onPlay}>{audioLoading ? <ActivityIndicator size="small" color="#fff" /> : playing ? <Pause size={20} color="#fff" fill="#fff" /> : <Play size={20} color="#fff" fill="#fff" />}</Pressable><Pressable style={styles.skipButton} onPress={() => onSeek(15)} accessibilityLabel="Tiến 15 giây"><RotateCw size={15} color="#77716A" /></Pressable></View>
           {!!audioError && <Text style={styles.audioPlaybackError}>{audioError}</Text>}
@@ -1767,6 +1819,7 @@ function SavedScreen({ language, savedSites, onLanguage, onOpenSite, onSave, onE
 }
 
 function ProfileScreen({ language, audioLanguage, autoPlay, savedCount, setAutoPlay, onLanguage, onAudioLanguage, onNotify }) {
+  const interfaceLanguage = useContext(UiLanguageContext);
   return <ScrollView style={styles.screen} contentContainerStyle={styles.profileContent} showsVerticalScrollIndicator={Platform.OS === 'web'}>
     <AppHeader language={language} onLanguage={onLanguage} title="Cá nhân" subtitle="Không gian khám phá của bạn." />
     <View style={styles.profileHero}><LinearGradient colors={['#F8EBDF', '#F5D7C4', '#E8BA9D']} style={StyleSheet.absoluteFill} /><View style={styles.profileAvatarLarge}><Text>Q1</Text><View style={styles.onlineDot} /></View><Text style={styles.profileName}>Người khám phá</Text><Text style={styles.profileSince}>Thành viên từ tháng 10, 2026</Text><View style={styles.profileStats}><View><Text>08</Text><Text>ĐIỂM ĐÃ NGHE</Text></View><View style={styles.profileStatDivider} /><View><Text>{String(savedCount).padStart(2, '0')}</Text><Text>ĐÃ LƯU</Text></View><View style={styles.profileStatDivider} /><View><Text>03</Text><Text>NGÀY KHÁM PHÁ</Text></View></View></View>
@@ -1774,7 +1827,7 @@ function ProfileScreen({ language, audioLanguage, autoPlay, savedCount, setAutoP
     <View style={styles.settingsGroup}>
       <ProfileRow icon={Languages} title="Ngôn ngữ giao diện" subtitle={language.name} onPress={onLanguage} />
       <View style={styles.profileSettingRow}><View style={styles.profileRowIcon}><Headphones size={17} color="#4C9C7E" /></View><View style={styles.profileRowCopy}><Text style={styles.profileRowTitle}>Tự động phát gần di tích</Text><Text style={styles.profileRowSub}>Phát khi bạn đến gần điểm tham quan</Text></View><Switch value={autoPlay} onValueChange={setAutoPlay} trackColor={{ false: '#ddd8d2', true: '#F04D2E' }} thumbColor="#fff" /></View>
-      <ProfileRow icon={Headphones} title="Ngôn ngữ thuyết minh" subtitle={audioLanguage.name} onPress={onAudioLanguage} last />
+      <ProfileRow icon={Headphones} title="Ngôn ngữ thuyết minh" subtitle={translateLanguageName(audioLanguage.id, audioLanguage.name, interfaceLanguage)} onPress={onAudioLanguage} last />
     </View>
     <Text style={styles.profileGroupLabel}>THÔNG TIN</Text>
     <View style={styles.settingsGroup}><ProfileRow icon={CircleHelp} title="Trợ giúp & hỗ trợ" onPress={() => onNotify('Trung tâm trợ giúp sẽ sớm được cập nhật.')} /><ProfileRow icon={Info} title="Về Di Tích Q1" subtitle="Phiên bản 1.0.0" onPress={() => onNotify('Ứng dụng thuyết minh di tích lịch sử Quận 1.')} last /></View>
@@ -2024,6 +2077,11 @@ const styles = StyleSheet.create({
   quickColor_green: { color: '#4D9C7A' },
   quickLabel: { color: '#66615D', fontSize: 8, fontWeight: '600' },
   textOnlyLink: { paddingBottom: 2 },
+  nearbyPage: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingRight: 16 },
+  nearbyPagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 12 },
+  nearbyPageButton: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#EBE7E2', borderRadius: 10, backgroundColor: '#fff' },
+  nearbyPageButtonDisabled: { backgroundColor: '#F7F5F2' },
+  nearbyPageCount: { minWidth: 36, color: muted, fontSize: 10, fontWeight: '700', textAlign: 'center' },
   horizontalCards: { gap: 10, paddingBottom: 3, paddingRight: 16 },
   miniPlaceCard: { width: 224, overflow: 'hidden', borderWidth: 1, borderColor: '#F0ECE8', borderRadius: 14, backgroundColor: '#fff' },
   miniArtwork: { position: 'relative', height: 168, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
