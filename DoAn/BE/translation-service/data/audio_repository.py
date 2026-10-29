@@ -3,6 +3,7 @@ from typing import Optional
 
 class AudioRepository:
     def __init__(self, database):
+        self.database = database
         self.sites = database["sites"]
         self.translations = database["translations"]
         self.audio_assets = database["audio_assets"]
@@ -12,6 +13,13 @@ class AudioRepository:
             {"code": site_code},
             {"_id": 0, "code": 1, "description": 1},
         )
+
+    async def get_language(self, lang: str):
+        try:
+            collection = self.database["languages"]
+        except KeyError:
+            return None
+        return await collection.find_one({"_id": lang})
 
     async def get_translation(self, site_code: str, lang: str, source_text: str):
         if self.sites is self.translations:

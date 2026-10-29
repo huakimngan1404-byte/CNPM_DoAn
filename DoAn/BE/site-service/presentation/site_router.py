@@ -9,6 +9,7 @@ from presentation.auth_router import require_admin
 router = APIRouter(prefix="/api/sites")
 visitor_router = APIRouter(prefix="/api/visitors")
 listen_router = APIRouter(prefix="/api/listens")
+language_router = APIRouter(prefix="/api/languages")
 service = SiteService()
 
 # --- MODEL REQUEST ---
@@ -45,7 +46,52 @@ class SiteAdminUpdate(BaseModel):
     description: str = Field(min_length=10, max_length=20000)
     is_active: bool = True
 
+class LanguageAdminForm(BaseModel):
+    code: str = Field(min_length=2, max_length=5, pattern=r"^[a-z]{2}(?:-[a-z]{2})?$")
+    name: str = Field(min_length=1, max_length=100)
+    flag: str = Field(min_length=1, max_length=16)
+
+class LanguageAdminUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    flag: str = Field(min_length=1, max_length=16)
+    is_active: bool
+
 # --- CONTROLLERS ---
+
+@language_router.get("/")
+async def get_active_languages():
+    return await service.get_languages(active_only=True)
+
+@language_router.get("/admin", dependencies=[Depends(require_admin)])
+async def get_admin_languages():
+    return await service.get_languages()
+
+@language_router.post("/", status_code=201, dependencies=[Depends(require_admin)])
+async def create_language(data: LanguageAdminForm):
+    try:
+        await service.add_language(data.code, data.name.strip(), data.flag.strip())
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"status": "success"}
+
+@language_router.put("/{code}", dependencies=[Depends(require_admin)])
+async def update_language(code: str, data: LanguageAdminUpdate):
+    try:
+        await service.update_language(code, data.name.strip(), data.flag.strip(), data.is_active)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": "success"}
+
+@language_router.delete("/{code}", status_code=204, dependencies=[Depends(require_admin)])
+async def delete_language(code: str):
+    try:
+        await service.delete_language(code)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 @visitor_router.post("/heartbeat", status_code=204)
 async def heartbeat_visitor(data: VisitorSession):

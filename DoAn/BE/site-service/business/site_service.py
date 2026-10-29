@@ -10,14 +10,71 @@ from data.site_repository import SiteRepository
 
 ACTIVE_VISITOR_TTL_SECONDS = 45
 HO_CHI_MINH_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+SUPPORTED_LANGUAGE_CODES = {"vi", "en", "zh", "ja", "ko", "fr", "de"}
 
 
 class SiteService:
     def __init__(self):
         self.repo = SiteRepository()
         self.catalog_seeded = False
+        self.language_catalog_seeded = False
         self.active_visitors = {}
         self.visitor_lock = asyncio.Lock()
+        self.language_catalog_lock = asyncio.Lock()
+
+    async def ensure_language_catalog_seeded(self):
+        if self.language_catalog_seeded:
+            return
+        async with self.language_catalog_lock:
+            if not self.language_catalog_seeded:
+                await self.repo.ensure_language_catalog()
+                self.language_catalog_seeded = True
+
+    async def get_languages(self, active_only: bool = False):
+        await self.ensure_language_catalog_seeded()
+        return await self.repo.get_languages(active_only)
+
+    async def add_language(self, code: str, name: str, flag: str):
+        await self.ensure_language_catalog_seeded()
+        if code not in SUPPORTED_LANGUAGE_CODES:
+            raise ValueError("Mã ngôn ngữ này chưa được dịch vụ hỗ trợ.")
+        if not name.strip() or not flag.strip():
+            raise ValueError("Tên và biểu tượng ngôn ngữ không được để trống.")
+        existing = await self.repo.get_language(code)
+        if existing and not existing.get("is_deleted", False):
+            raise ValueError("Ngôn ngữ này đã có trong danh sách.")
+        await self.repo.save_language({
+            "code": code,
+            "name": name,
+            "flag": flag,
+            "is_active": True,
+        })
+
+    async def update_language(self, code: str, name: str, flag: str, is_active: bool):
+        await self.ensure_language_catalog_seeded()
+        if code not in SUPPORTED_LANGUAGE_CODES:
+            raise LookupError("Không tìm thấy ngôn ngữ.")
+        if not name.strip() or not flag.strip():
+            raise ValueError("Tên và biểu tượng ngôn ngữ không được để trống.")
+        if code == "vi" and not is_active:
+            raise ValueError("Không thể tắt Tiếng Việt vì đây là ngôn ngữ nội dung gốc.")
+        result = await self.repo.update_language(code, {
+            "name": name,
+            "flag": flag,
+            "is_active": is_active,
+        })
+        if not result.matched_count:
+            raise LookupError("Không tìm thấy ngôn ngữ.")
+
+    async def delete_language(self, code: str):
+        await self.ensure_language_catalog_seeded()
+        if code == "vi":
+            raise ValueError("Không thể xóa Tiếng Việt vì đây là ngôn ngữ nội dung gốc.")
+        if code not in SUPPORTED_LANGUAGE_CODES:
+            raise LookupError("Không tìm thấy ngôn ngữ.")
+        result = await self.repo.delete_language(code)
+        if not result.matched_count:
+            raise LookupError("Không tìm thấy ngôn ngữ.")
 
     async def ensure_catalog_seeded(self):
         if not self.catalog_seeded:

@@ -170,6 +170,57 @@ export async function fetchAdminSites() {
   }));
 }
 
+function validateLanguageRecords(records) {
+  if (!Array.isArray(records) || records.some((language) => (
+    typeof language?.code !== 'string'
+    || typeof language?.name !== 'string'
+    || typeof language?.flag !== 'string'
+    || typeof language?.is_active !== 'boolean'
+    || !Number.isInteger(language?.places)
+  ))) {
+    throw new Error('Backend trả về danh sách ngôn ngữ không hợp lệ.');
+  }
+  return records;
+}
+
+export async function fetchAdminLanguages() {
+  return validateLanguageRecords(await requestSite('/api/languages/admin', {}, true));
+}
+
+export async function fetchActiveLanguages() {
+  return validateLanguageRecords(await requestSite('/api/languages/'));
+}
+
+export async function createLanguage(language) {
+  return requestSite('/api/languages/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      code: language.code,
+      name: language.name.trim(),
+      flag: language.flag.trim(),
+    }),
+  }, true);
+}
+
+export async function updateLanguage(code, language) {
+  return requestSite(`/api/languages/${encodeURIComponent(code)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: language.name.trim(),
+      flag: language.flag.trim(),
+      is_active: language.is_active,
+    }),
+  }, true);
+}
+
+export async function deleteLanguage(code) {
+  return requestSite(`/api/languages/${encodeURIComponent(code)}`, {
+    method: 'DELETE',
+  }, true);
+}
+
 export async function fetchRecentActivity() {
   const records = await requestSite('/api/sites/activity', {}, true);
   if (!Array.isArray(records)) {

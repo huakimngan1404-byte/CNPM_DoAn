@@ -7,11 +7,15 @@ import {
   ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
-import { initialSites } from './data.js';
+import { initialSites, languages as initialLanguages } from './data.js';
 import SiteMap from './components/SiteMap.jsx';
 import {
   createSite,
+  createLanguage,
   deleteSite,
+  deleteLanguage,
+  fetchActiveLanguages,
+  fetchAdminLanguages,
   fetchAdminSites,
   fetchActiveVisitors,
   fetchListenStats,
@@ -23,6 +27,7 @@ import {
   loginAdmin,
   recordNarrationListen,
   updateSite,
+  updateLanguage,
   updateAdminCredentials,
 } from './services/api.js';
 
@@ -57,13 +62,7 @@ const sectionTitles = {
   settings: ['Cài đặt hệ thống'],
 };
 
-const supportedLanguages = [
-  { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳' },
-  { code: 'en', name: 'English', flag: '🇬🇧' },
-  { code: 'ja', name: '日本語', flag: '🇯🇵' },
-  { code: 'zh', name: '中文', flag: '🇨🇳' },
-  { code: 'fr', name: 'Français', flag: '🇫🇷' },
-];
+const supportedLanguages = initialLanguages;
 
 const adminAuthRequired = true;
 const adminTokenStorageKey = 'ditichq1-admin-token';
@@ -188,6 +187,8 @@ function AdminLogin({ onLogin }) {
 function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
   const [activePage, setActivePage] = useState('dashboard');
   const [sites, setSites] = useState(initialSites);
+  const [languages, setLanguages] = useState(supportedLanguages);
+  const [languageLoadError, setLanguageLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('Tất cả trạng thái');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -210,6 +211,20 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    fetchAdminLanguages()
+      .then((records) => {
+        if (!active) return;
+        setLanguages(records);
+        setLanguageLoadError('');
+      })
+      .catch((error) => {
+        if (active) setLanguageLoadError(error.message);
+      });
+    return () => { active = false; };
+  }, []);
+
   const filteredSites = useMemo(() => sites.filter((site) => {
     const matchesQuery = `${site.name} ${site.address} ${site.category}`.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'Tất cả trạng thái' || site.status === statusFilter;
@@ -219,6 +234,11 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
   const notify = (message) => {
     setToast(message);
     window.setTimeout(() => setToast(''), 2600);
+  };
+
+  const replaceLanguages = (records) => {
+    setLanguages(records);
+    setLanguageLoadError('');
   };
 
   const openCreate = () => {
@@ -331,17 +351,11 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
               </button>
             )}
 
-            {/* Trang Ngôn ngữ -> Thêm ngôn ngữ */}
-            {activePage === 'languages' && (
-              <button className="button button-primary" onClick={() => notify('Form thêm ngôn ngữ sẽ hiển thị ở đây.')}>
-                <Plus size={17} /> Thêm ngôn ngữ
-              </button>
-            )}
           </div>
-          {activePage === 'dashboard' && <Dashboard sites={sites} onNavigate={setActivePage} />}
+          {activePage === 'dashboard' && <Dashboard sites={sites} languages={languages} onNavigate={setActivePage} />}
           {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} allSites={sites} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onDelete={removeSite} />}
-          {activePage === 'narrations' && <NarrationsPage notify={notify} />}
-          {activePage === 'languages' && <LanguagesPage sites={sites} />}
+          {activePage === 'narrations' && <NarrationsPage notify={notify} languages={languages.filter((language) => language.is_active)} />}
+          {activePage === 'languages' && <LanguagesPage languages={languages} loadError={languageLoadError} onLanguagesChange={replaceLanguages} notify={notify} />}
           {activePage === 'map' && <MapPage notify={notify} sites={sites} />}
           {activePage === 'settings' && <SettingsPage account={account} onAccountUpdate={onAccountUpdate} notify={notify} authRequired={authRequired} />}
         </div>
@@ -354,9 +368,10 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
   );
 }
 
-function Dashboard({ sites, onNavigate }) {
+function Dashboard({ sites, languages, onNavigate }) {
   const activeCount = sites.filter((site) => site.status === 'Đang hoạt động').length;
-  const narrationCount = sites.length * supportedLanguages.length;
+  const activeLanguages = languages.filter((language) => language.is_active);
+  const narrationCount = sites.length * activeLanguages.length;
   const [activeVisitors, setActiveVisitors] = useState(null);
   const [visitorError, setVisitorError] = useState('');
   const [recentActivity, setRecentActivity] = useState([]);
@@ -474,7 +489,7 @@ function Dashboard({ sites, onNavigate }) {
             <StatCard label="Người đang truy cập" value={activeVisitors === null ? '—' : String(activeVisitors)} icon={Headphones} iconTone="blue" />
             <StatCard label="Điểm di tích" value={String(sites.length)} icon={MapPin} iconTone="orange" />
             <StatCard label="Bài thuyết minh" value={String(narrationCount)} icon={AudioLines} iconTone="violet" />
-            <StatCard label="Ngôn ngữ hỗ trợ" value={String(supportedLanguages.length)} icon={Globe2} iconTone="green" />
+            <StatCard label="Ngôn ngữ hỗ trợ" value={String(activeLanguages.length)} icon={Globe2} iconTone="green" />
           </section>
 
           <div className="panel listening-panel">
@@ -566,13 +581,8 @@ function Dashboard({ sites, onNavigate }) {
 }
 
 function ListenerDemo({ siteCode, siteName }) {
-  const narrationLanguages = [
-    { code: 'vi', name: 'Tiếng Việt' },
-    { code: 'en', name: 'English' },
-    { code: 'ja', name: '日本語' },
-    { code: 'zh', name: '中文' },
-    { code: 'fr', name: 'Français' },
-  ];
+  const [narrationLanguages, setNarrationLanguages] = useState(supportedLanguages);
+  const [languageLoadError, setLanguageLoadError] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('vi');
   const [narration, setNarration] = useState(null);
   const [narrationLoading, setNarrationLoading] = useState(true);
@@ -583,6 +593,26 @@ function ListenerDemo({ siteCode, siteName }) {
   const selectedLanguageInfo = narrationLanguages.find(
     (language) => language.code === selectedLanguage,
   );
+
+  useEffect(() => {
+    let active = true;
+    fetchActiveLanguages()
+      .then((languages) => {
+        if (!active) return;
+        setNarrationLanguages(languages);
+        setLanguageLoadError('');
+      })
+      .catch((error) => {
+        if (active) setLanguageLoadError(error.message);
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (narrationLanguages.length && !narrationLanguages.some((language) => language.code === selectedLanguage)) {
+      setSelectedLanguage(narrationLanguages[0].code);
+    }
+  }, [narrationLanguages, selectedLanguage]);
 
   useEffect(() => {
     const sessionId = createVisitorSessionId();
@@ -671,6 +701,7 @@ function ListenerDemo({ siteCode, siteName }) {
             ))}
           </select>
         </label>
+        {languageLoadError && <p className="listener-audio-warning">Không tải được danh sách ngôn ngữ mới nhất: {languageLoadError}</p>}
         {audioUrl ? (
           <div className="listener-audio">
             <strong><Headphones size={17} /> Bài thuyết minh · {selectedLanguageInfo?.name}</strong>
@@ -788,7 +819,7 @@ function PlacesPage({ sites, totalSites, allSites, search, setSearch, statusFilt
   );
 }
 
-function NarrationsPage({ notify }) {
+function NarrationsPage({ notify, languages }) {
   const [selectedLang, setSelectedLang] = useState('Tất cả ngôn ngữ');
   const [search, setSearch] = useState('');
   const [sites, setSites] = useState([]);
@@ -842,8 +873,13 @@ function NarrationsPage({ notify }) {
   }, [audioUrl]);
 
   const narrationLanguages = selectedLang === 'Tất cả ngôn ngữ'
-    ? supportedLanguages
-    : supportedLanguages.filter((language) => language.name === selectedLang);
+    ? languages
+    : languages.filter((language) => language.name === selectedLang);
+  useEffect(() => {
+    if (selectedLang !== 'Tất cả ngôn ngữ' && !languages.some((language) => language.name === selectedLang)) {
+      setSelectedLang('Tất cả ngôn ngữ');
+    }
+  }, [languages, selectedLang]);
   const narrations = sites.flatMap((site) => narrationLanguages.map((language) => ({
     id: `${site.code}-${language.code}`,
     site,
@@ -909,7 +945,7 @@ function NarrationsPage({ notify }) {
     }
   };
 
-  return <section className="panel content-list-panel"><div className="content-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên di tích, địa chỉ..." /></div><label className="filter-select"><Globe2 size={15} /><select value={selectedLang} onChange={(event) => setSelectedLang(event.target.value)}><option>Tất cả ngôn ngữ</option><option>Tiếng Việt</option><option>English</option><option>日本語</option><option>中文</option><option>Français</option></select><ChevronDown size={14} /></label><span className="narration-total">{narrations.length} bài thuyết minh</span></div>
+  return <section className="panel content-list-panel"><div className="content-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên di tích, địa chỉ..." /></div><label className="filter-select"><Globe2 size={15} /><select value={selectedLang} onChange={(event) => setSelectedLang(event.target.value)}><option>Tất cả ngôn ngữ</option>{languages.map((language) => <option key={language.code}>{language.name}</option>)}</select><ChevronDown size={14} /></label><span className="narration-total">{narrations.length} bài thuyết minh</span></div>
     <div className="narration-list">{narrations.map((item, index) => {
       const isActive = activeId === item.id;
       return <div className="narration-row" key={item.id}><div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div><div className="narration-title"><strong>{item.site.name}</strong><span>{item.site.category} <i /> {item.language.name}</span></div><button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site.name}` : isActive && isPlaying ? `Tạm dừng ${item.site.name}` : `Nghe ${item.site.name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id || sites.length === 0} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button><button className="row-more" aria-label="Tùy chọn"><MoreHorizontal size={18} /></button></div>;
@@ -929,28 +965,159 @@ function NarrationsPage({ notify }) {
   </section>;
 }
 
-function LanguagesPage({ sites }) {
-  const languageCoverage = supportedLanguages.length
-    ? (supportedLanguages.length / supportedLanguages.length) * 100
+function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [editingLanguage, setEditingLanguage] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const activeLanguages = languages.filter((language) => language.is_active);
+  const languageCoverage = languages.length
+    ? (activeLanguages.length / languages.length) * 100
     : 0;
+  const filteredLanguages = languages.filter((language) => {
+    const matchesSearch = `${language.name} ${language.code}`.toLowerCase().includes(search.trim().toLowerCase());
+    const matchesStatus = statusFilter === 'all'
+      || (statusFilter === 'active' ? language.is_active : !language.is_active);
+    return matchesSearch && matchesStatus;
+  });
+  const addableLanguages = supportedLanguages.filter(
+    (language) => !languages.some((current) => current.code === language.code),
+  );
+
+  const refreshLanguages = async () => {
+    const records = await fetchAdminLanguages();
+    onLanguagesChange(records);
+  };
+
+  const saveLanguage = async (formData) => {
+    if (editingLanguage) {
+      await updateLanguage(editingLanguage.code, {
+        ...formData,
+        is_active: editingLanguage.is_active,
+      });
+    } else {
+      await createLanguage(formData);
+    }
+    setIsModalOpen(false);
+    setActionError('');
+    notify(editingLanguage ? 'Đã cập nhật ngôn ngữ.' : 'Đã thêm ngôn ngữ.');
+    try {
+      await refreshLanguages();
+    } catch (error) {
+      setActionError(`Đã lưu nhưng không thể tải lại danh sách: ${error.message}`);
+    }
+  };
+
+  const toggleLanguage = async (language) => {
+    try {
+      await updateLanguage(language.code, {
+        ...language,
+        is_active: !language.is_active,
+      });
+      setActionError('');
+      notify(language.is_active ? 'Đã tắt ngôn ngữ.' : 'Đã bật ngôn ngữ.');
+      try {
+        await refreshLanguages();
+      } catch (error) {
+        setActionError(`Đã đổi trạng thái nhưng không thể tải lại danh sách: ${error.message}`);
+      }
+    } catch (error) {
+      setActionError(`Không thể đổi trạng thái ngôn ngữ: ${error.message}`);
+    }
+  };
+
+  const removeLanguage = async (language) => {
+    if (!window.confirm(`Xóa "${language.name}" khỏi danh sách ngôn ngữ? Ngôn ngữ sẽ không còn dùng được cho bài thuyết minh mới.`)) return;
+    try {
+      await deleteLanguage(language.code);
+      setActionError('');
+      notify(`Đã xóa ngôn ngữ ${language.name}.`);
+      try {
+        await refreshLanguages();
+      } catch (error) {
+        setActionError(`Đã xóa nhưng không thể tải lại danh sách: ${error.message}`);
+      }
+    } catch (error) {
+      setActionError(`Không thể xóa ngôn ngữ: ${error.message}`);
+    }
+  };
+
   return <div className="language-page">
     <section className="panel language-overview">
       <div className="language-overview-icon"><Globe2 size={22} /></div>
-      <div><span>NGÔN NGỮ BACKEND HỖ TRỢ</span><strong>{supportedLanguages.length} <small>/ {supportedLanguages.length}</small></strong></div>
-      <div className="language-overview-bar"><div><i style={{ width: `${languageCoverage}%` }} /></div><small>API hỗ trợ dịch và tạo audio theo yêu cầu</small></div>
+      <div><span>NGÔN NGỮ ĐANG HOẠT ĐỘNG</span><strong>{activeLanguages.length} <small>/ {languages.length}</small></strong></div>
+      <div className="language-overview-bar"><div><i style={{ width: `${languageCoverage}%` }} /></div><small>Ngôn ngữ có thể dùng để dịch và tạo audio</small></div>
     </section>
     <section className="panel language-panel">
-      <div className="panel-heading"><div><h3>Danh sách ngôn ngữ</h3><p>Đồng bộ với ngôn ngữ dịch và tạo audio của Backend</p></div></div>
-      <div className="language-list">{supportedLanguages.map((language) => (
+      <div className="panel-heading language-manager-heading">
+        <div><h3>Danh sách ngôn ngữ</h3><p>Quản lý các ngôn ngữ được hỗ trợ bởi Backend</p></div>
+        <button className="button button-primary" onClick={() => { setEditingLanguage(null); setIsModalOpen(true); }} disabled={!addableLanguages.length}>
+          <Plus size={16} /> Thêm ngôn ngữ
+        </button>
+      </div>
+      <div className="language-toolbar">
+        <label className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm tên hoặc mã ngôn ngữ..." /></label>
+        <label className="filter-select"><Filter size={15} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Tất cả trạng thái</option><option value="active">Đang bật</option><option value="inactive">Đang tắt</option></select><ChevronDown size={14} /></label>
+      </div>
+      {loadError && <div className="language-error" role="alert">Không tải được danh sách ngôn ngữ: {loadError}</div>}
+      {actionError && <div className="language-error" role="alert">{actionError}</div>}
+      <div className="language-list">{filteredLanguages.map((language) => (
         <div className="language-row" key={language.code}>
           <span className="language-flag">{language.flag}</span>
-          <div className="language-name"><strong>{language.name}</strong><small>{language.code}</small></div>
-          <div className="language-places"><strong>{sites.length}</strong><span>di tích có thể thuyết minh</span></div>
-          <span className="language-supported">Được hỗ trợ</span>
+          <div className="language-name"><strong>{language.name}</strong><small>{language.code.toUpperCase()}</small></div>
+          <div className="language-places"><strong>{language.places}</strong><span>di tích đã có bản dịch</span></div>
+          <span className={`language-status ${language.is_active ? 'is-active' : 'is-inactive'}`}>{language.is_active ? 'Đang bật' : 'Đang tắt'}</span>
+          <div className="language-actions">
+            <button className="icon-button" title="Sửa tên và biểu tượng" aria-label={`Sửa ${language.name}`} onClick={() => { setEditingLanguage(language); setIsModalOpen(true); }}><Pencil size={15} /></button>
+            <button className="icon-button" title={language.is_active ? 'Tắt ngôn ngữ' : 'Bật ngôn ngữ'} aria-label={`${language.is_active ? 'Tắt' : 'Bật'} ${language.name}`} disabled={language.code === 'vi'} onClick={() => toggleLanguage(language)}><Check size={15} /></button>
+            <button className="icon-button language-delete" title="Xóa ngôn ngữ" aria-label={`Xóa ${language.name}`} disabled={language.code === 'vi'} onClick={() => removeLanguage(language)}><Trash2 size={15} /></button>
+          </div>
         </div>
-      ))}</div>
+      ))}{filteredLanguages.length === 0 && <div className="language-empty">Không có ngôn ngữ phù hợp với bộ lọc.</div>}</div>
     </section>
+    {isModalOpen && <LanguageModal
+      language={editingLanguage}
+      availableLanguages={addableLanguages}
+      onClose={() => setIsModalOpen(false)}
+      onSave={saveLanguage}
+    />}
   </div>;
+}
+
+function LanguageModal({ language, availableLanguages, onClose, onSave }) {
+  const [code, setCode] = useState(language?.code ?? availableLanguages[0]?.code ?? '');
+  const [name, setName] = useState(language?.name ?? '');
+  const [flag, setFlag] = useState(language?.flag ?? '');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!code || !name.trim() || !flag.trim()) {
+      setError('Nhập đầy đủ tên, biểu tượng và mã ngôn ngữ.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onSave({ code, name: name.trim(), flag: flag.trim() });
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  };
+
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}><form className="site-modal language-modal" onSubmit={submit}>
+    <div className="modal-head"><div><span className="modal-icon"><Globe2 size={18} /></span><div><h2>{language ? 'Chỉnh sửa ngôn ngữ' : 'Thêm ngôn ngữ'}</h2><p>Thông tin được lưu vào Backend.</p></div></div><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose} disabled={saving}><X size={19} /></button></div>
+    <div className="modal-body">
+      <label>Mã ngôn ngữ <em>*</em><select value={code} disabled={Boolean(language)} onChange={(event) => setCode(event.target.value)}>{language ? <option value={language.code}>{language.code.toUpperCase()}</option> : availableLanguages.map((available) => <option key={available.code} value={available.code}>{available.code.toUpperCase()} · {available.name}</option>)}</select></label>
+      <label>Tên hiển thị <em>*</em><input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} placeholder="Ví dụ: Tiếng Việt" /></label>
+      <label>Biểu tượng <em>*</em><input value={flag} onChange={(event) => setFlag(event.target.value)} maxLength={16} placeholder="Ví dụ: 🇻🇳" /></label>
+      {error && <div className="form-error" role="alert">{error}</div>}
+    </div>
+    <div className="modal-foot"><button type="button" className="button button-secondary" onClick={onClose} disabled={saving}>Hủy</button><button className="button button-primary" type="submit" disabled={saving || (!language && !availableLanguages.length)}>{saving ? 'Đang lưu…' : language ? 'Lưu thay đổi' : 'Thêm ngôn ngữ'} {!saving && <ArrowRight size={15} />}</button></div>
+  </form></div>;
 }
 
 function MapPage({ notify, sites }) {

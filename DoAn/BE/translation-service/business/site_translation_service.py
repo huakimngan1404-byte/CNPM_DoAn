@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import inspect
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -51,6 +52,13 @@ class SiteTranslationService:
     async def get_translation(self, site_code: str, lang: str):
         if lang not in self.supported_languages:
             raise SiteTranslationError(400, f"Unsupported language: {lang}")
+        get_language = getattr(self.repository, "get_language", None)
+        language = await get_language(lang) if inspect.iscoroutinefunction(get_language) else None
+        if isinstance(language, dict) and (
+            language.get("is_deleted") is True
+            or language.get("is_active") is False
+        ):
+            raise SiteTranslationError(400, f"Language is disabled: {lang}")
 
         site = await self.repository.get_site(site_code)
         if site is None:

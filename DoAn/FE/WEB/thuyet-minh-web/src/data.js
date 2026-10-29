@@ -57,8 +57,11 @@ export const initialSites = [
 ];
 
 export const languages = [
-  { code: 'VI', name: 'Tiếng Việt', flag: '🇻🇳', status: 'Đang sử dụng', places: 12 },
-  { code: 'EN', name: 'English', flag: '🇬🇧', status: 'Đang sử dụng', places: 10 },
-  { code: 'ZH', name: '中文', flag: '🇨🇳', status: 'Đang sử dụng', places: 6 },
-  { code: 'FR', name: 'Français', flag: '🇫🇷', status: 'Đang sử dụng', places: 4 },
+  { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳', is_active: true },
+  { code: 'en', name: 'English', flag: '🇬🇧', is_active: true },
+  { code: 'zh', name: '中文', flag: '🇨🇳', is_active: true },
+  { code: 'ja', name: '日本語', flag: '🇯🇵', is_active: true },
+  { code: 'ko', name: '한국어', flag: '🇰🇷', is_active: true },
+  { code: 'fr', name: 'Français', flag: '🇫🇷', is_active: true },
+  { code: 'de', name: 'Deutsch', flag: '🇩🇪', is_active: true },
 ];

@@ -86,8 +86,76 @@ DEFAULT_SITES = (
     },
 )
 
+DEFAULT_LANGUAGES = (
+    {"code": "vi", "name": "Tiếng Việt", "flag": "🇻🇳", "is_active": True},
+    {"code": "en", "name": "English", "flag": "🇬🇧", "is_active": True},
+    {"code": "zh", "name": "中文", "flag": "🇨🇳", "is_active": True},
+    {"code": "ja", "name": "日本語", "flag": "🇯🇵", "is_active": True},
+    {"code": "ko", "name": "한국어", "flag": "🇰🇷", "is_active": True},
+    {"code": "fr", "name": "Français", "flag": "🇫🇷", "is_active": True},
+    {"code": "de", "name": "Deutsch", "flag": "🇩🇪", "is_active": True},
+)
+
 
 class SiteRepository:
+    async def ensure_language_catalog(self):
+        if await db.languages.find_one({"_id": "vi"}, {"_id": 1}):
+            return
+        for language in DEFAULT_LANGUAGES:
+            await db.languages.update_one(
+                {"_id": language["code"]},
+                {"$setOnInsert": {**language, "_id": language["code"]}},
+                upsert=True,
+            )
+
+    async def get_languages(self, active_only: bool = False):
+        filters = {"is_deleted": {"$ne": True}}
+        if active_only:
+            filters["is_active"] = True
+        cursor = db.languages.find(filters)
+        languages = []
+        async for record in cursor:
+            languages.append({
+                "code": record["_id"],
+                "name": record["name"],
+                "flag": record["flag"],
+                "is_active": record.get("is_active", True),
+                "places": len(await db.translations.distinct(
+                    "site_code", {"lang": record["_id"]}
+                )),
+            })
+        return sorted(languages, key=lambda language: (language["code"] != "vi", language["name"].casefold()))
+
+    async def get_language(self, code: str):
+        return await db.languages.find_one({"_id": code})
+
+    async def save_language(self, language: dict):
+        await db.languages.update_one(
+            {"_id": language["code"]},
+            {
+                "$set": {
+                    "name": language["name"],
+                    "flag": language["flag"],
+                    "is_active": language["is_active"],
+                    "is_deleted": False,
+                },
+                "$setOnInsert": {"_id": language["code"]},
+            },
+            upsert=True,
+        )
+
+    async def update_language(self, code: str, updates: dict):
+        return await db.languages.update_one(
+            {"_id": code, "is_deleted": {"$ne": True}},
+            {"$set": updates},
+        )
+
+    async def delete_language(self, code: str):
+        return await db.languages.update_one(
+            {"_id": code, "is_deleted": {"$ne": True}},
+            {"$set": {"is_active": False, "is_deleted": True}},
+        )
+
     async def record_listen(self, site_code: str, language: str, device: str):
         await db.listening_events.insert_one({
             "site_code": site_code,
