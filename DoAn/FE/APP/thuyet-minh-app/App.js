@@ -747,7 +747,7 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
     (currentNearbyPage + 1) * nearbyPageSize,
   );
   const nearbyCardWidth = nearbyWidth
-    ? Math.min(340, (nearbyWidth - 16 - (nearbyColumns - 1) * 10) / nearbyColumns)
+    ? (nearbyWidth - (nearbyColumns - 1) * 10) / nearbyColumns
     : 224;
   const nearbyArtworkHeight = Math.min(210, Math.max(168, nearbyCardWidth * 0.625));
 
@@ -2089,7 +2089,7 @@ const styles = StyleSheet.create({
   quickColor_green: { color: '#4D9C7A' },
   quickLabel: { color: '#66615D', fontSize: 8, fontWeight: '600' },
   textOnlyLink: { paddingBottom: 2 },
-  nearbyPage: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingRight: 16 },
+  nearbyPage: { width: '100%', alignSelf: 'stretch', flexDirection: 'row', flexWrap: 'wrap', alignContent: 'flex-start', gap: 10 },
   nearbyPagination: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 12 },
   nearbyPageButton: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#EBE7E2', borderRadius: 10, backgroundColor: '#fff' },
   nearbyPageButtonDisabled: { backgroundColor: '#F7F5F2' },
