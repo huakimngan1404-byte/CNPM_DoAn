@@ -197,8 +197,8 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .language-pills-empty { color: #9ca3ad; font-size: 8px; }
 .status-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px; border-radius: 4px; color: #398a6f; background: #edf8f3; font-size: 8px; font-weight: 600; }
 .status-badge i, .summary-status i { width: 5px; height: 5px; border-radius: 50%; background: #4cb18a; }
-.status-badge.draft { color: #b07a2e; background: #fff7e9; }
-.status-badge.draft i, .summary-status .draft-summary i { background: #e6a83d; }
+.status-badge.closed { color: #b07a2e; background: #fff7e9; }
+.status-badge.closed i, .summary-status .draft-summary i { background: #e6a83d; }
 .date-cell { color: #8c939f; font-size: 8px; }
 .row-more { width: 30px; height: 30px; flex: 0 0 auto; color: #78818d; }
 .row-more:hover { border-color: #e7e9ed; color: #424a56; background: #f7f8fa; }
@@ -320,10 +320,7 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .language-overview > div:nth-child(2) span { color: #9aa1ab; font-size: 8px; font-weight: 700; letter-spacing: .7px; }
 .language-overview > div:nth-child(2) strong { color: #353b45; font: 800 19px 'Manrope',sans-serif; }
 .language-overview > div:nth-child(2) small { color: #9ea5af; font-size: 11px; font-weight: 500; }
-.language-overview-bar { width: 220px; margin-left: auto; }
-.language-overview-bar > div { height: 5px; overflow: hidden; border-radius: 4px; background: #eef0f3; }
-.language-overview-bar > div i { display: block; height: 100%; border-radius: 4px; background: #6488c9; }
-.language-overview-bar small { display: block; margin-top: 7px; color: #999faa; font-size: 8px; }
+.language-overview-note { margin-left: auto; color: #999faa; font-size: 8px; }
 .language-panel { padding: 17px 0 0; }
 .language-panel > .panel-heading { padding: 0 19px 14px; }
 .language-list { padding: 0 19px; }
@@ -343,7 +340,6 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .language-status.is-inactive { color: #a3784c; }
 .language-actions { display: flex; gap: 4px; }
 .language-actions .icon-button { width: 30px; height: 30px; color: #798391; }
-.language-actions .language-delete { color: #c76c62; }
 .language-actions button:disabled { opacity: .35; cursor: not-allowed; }
 .language-error { margin: 0 19px 10px; padding: 10px 12px; border-radius: 6px; color: #a4473b; background: #fff0ed; font-size: 10px; }
 .language-empty { padding: 22px 10px; color: #89919c; font-size: 10px; text-align: center; }
@@ -521,7 +517,6 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
   .narration-list { padding: 0 12px; }
   .narration-row { gap: 8px; }
   .language-overview { padding: 14px; }
-  .language-overview-bar { width: min(42%,190px); }
   .language-panel { padding: 14px 0 0; }
   .language-panel > .panel-heading { align-items: center; padding: 0 14px 12px; }
   .language-list { padding: 0 14px; }

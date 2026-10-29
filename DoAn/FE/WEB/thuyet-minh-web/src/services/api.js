@@ -113,7 +113,7 @@ export async function fetchSites() {
     isActive: record.is_active !== false,
     languages: ['VI'],
     narrations: 1,
-    status: record.is_active === false ? 'Bản nháp' : 'Đang hoạt động',
+    status: record.is_active === false ? 'Đóng cửa' : 'Mở cửa',
     color: colors[index % colors.length],
     image: record.image_url || '',
   }));
@@ -164,7 +164,7 @@ export async function fetchAdminSites() {
         .filter((language) => typeof language === 'string')
         .map((language) => language.toUpperCase())
       : [],
-    status: record.is_active === false ? 'Bản nháp' : 'Đang hoạt động',
+    status: record.is_active === false ? 'Đóng cửa' : 'Mở cửa',
     color: colors[index % colors.length],
     image: record.image_url || '',
   }));
@@ -212,12 +212,6 @@ export async function updateLanguage(code, language) {
       flag: language.flag.trim(),
       is_active: language.is_active,
     }),
-  }, true);
-}
-
-export async function deleteLanguage(code) {
-  return requestSite(`/api/languages/${encodeURIComponent(code)}`, {
-    method: 'DELETE',
   }, true);
 }
 
@@ -307,7 +301,7 @@ function toSitePayload(site) {
     address: site.address.trim(),
     category: site.category,
     description: site.description.trim(),
-    is_active: site.status === 'Đang hoạt động',
+    is_active: site.status === 'Mở cửa',
   };
 }
 

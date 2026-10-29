@@ -4,7 +4,7 @@ import {
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass,
   Filter, Globe2, Headphones, LayoutDashboard, Map,
   LogOut, MapPin, Menu, MoreHorizontal, Pause, Pencil, Play, Plus, RefreshCw, Search, Settings2,
-  ShieldCheck, Sparkles, Trash2, X,
+  Eye, EyeOff, ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import { initialSites, languages as initialLanguages } from './data.js';
@@ -14,7 +14,6 @@ import {
   createLanguage,
   createNarration,
   deleteSite,
-  deleteLanguage,
   deleteNarration,
   fetchActiveLanguages,
   fetchAdminLanguages,
@@ -349,7 +348,7 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
             )}
           </div>
           {activePage === 'dashboard' && <Dashboard sites={sites} languages={languages} onNavigate={setActivePage} />}
-          {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} allSites={sites} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onDelete={removeSite} />}
+          {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onDelete={removeSite} />}
           {activePage === 'narrations' && <NarrationsPage notify={notify} languages={languages.filter((language) => language.is_active)} />}
           {activePage === 'languages' && <LanguagesPage languages={languages} loadError={languageLoadError} onLanguagesChange={replaceLanguages} notify={notify} />}
           {activePage === 'map' && <MapPage notify={notify} sites={sites} />}
@@ -365,7 +364,6 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
 }
 
 function Dashboard({ sites, languages, onNavigate }) {
-  const activeCount = sites.filter((site) => site.status === 'Đang hoạt động').length;
   const activeLanguages = languages.filter((language) => language.is_active);
   const [narrationCount, setNarrationCount] = useState(null);
   const [narrationLoadError, setNarrationLoadError] = useState('');
@@ -388,7 +386,7 @@ function Dashboard({ sites, languages, onNavigate }) {
     fetchAdminNarrations()
       .then((narrations) => {
         if (!active) return;
-        setNarrationCount(narrations.length);
+        setNarrationCount(narrations.filter((narration) => narration.is_active).length);
         setNarrationLoadError('');
       })
       .catch((error) => {
@@ -495,7 +493,7 @@ function Dashboard({ sites, languages, onNavigate }) {
       tone: ['orange', 'blue', 'green', 'violet'][index % 4],
     }));
   const maxListens = Math.max(1, ...topSitesData.map((site) => site.listens));
-  const featuredPageSize = 5;
+  const featuredPageSize = 8;
   const featuredPageCount = Math.ceil(topSitesData.length / featuredPageSize);
   const visibleFeaturedPage = Math.min(featuredPage, Math.max(0, featuredPageCount - 1));
   const visibleTopSites = topSitesData.slice(
@@ -802,7 +800,7 @@ function LanguagePills({ codes }) {
 }
 
 function StatusBadge({ status }) {
-  return <span className={`status-badge ${status === 'Bản nháp' ? 'draft' : 'published'}`}><i />{status}</span>;
+  return <span className={`status-badge ${status === 'Đóng cửa' ? 'closed' : 'open'}`}><i />{status}</span>;
 }
 
 function ActivityItem({ icon: Icon, tone, title, description, time }) {
@@ -824,14 +822,12 @@ function formatActivityTime(value) {
   }).format(date);
 }
 
-function PlacesPage({ sites, totalSites, allSites, search, setSearch, statusFilter, setStatusFilter, onEdit, onDelete }) {
-  const activeCount = allSites.filter((site) => site.status === 'Đang hoạt động').length;
-  const draftCount = allSites.length - activeCount;
+function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setStatusFilter, onEdit, onDelete }) {
   return (
     <section className="panel places-panel">
       <div className="table-toolbar">
         <div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên di tích, địa chỉ..." /></div>
-        <label className="filter-select"><Filter size={15} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Tất cả trạng thái</option><option>Đang hoạt động</option><option>Bản nháp</option></select><ChevronDown size={14} /></label>
+        <label className="filter-select"><Filter size={15} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Tất cả trạng thái</option><option>Mở cửa</option><option>Đóng cửa</option></select><ChevronDown size={14} /></label>
         <button className="button button-secondary small-button" onClick={() => setStatusFilter('Tất cả trạng thái')}><Filter size={15} /> Bộ lọc</button>
       </div>
       <div className="places-table-wrap">
@@ -939,6 +935,7 @@ function NarrationsPage({ notify, languages }) {
     }
   }, [languages, selectedLang]);
   const visibleNarrations = narrations
+    .filter((narration) => narration.is_active && languages.some((language) => language.code === narration.lang))
     .filter((narration) => selectedLang === 'Tất cả ngôn ngữ' || narration.language_name === selectedLang)
     .filter((narration) => (
       `${narration.site_name} ${narration.language_name} ${narration.description}`
@@ -1069,7 +1066,7 @@ function NarrationsPage({ notify, languages }) {
         const isActive = activeId === item.id;
         return <div className="narration-row" key={item.id}>
           <div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div>
-          <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()} {!item.is_active && <em>Ngôn ngữ đã tắt</em>}</span><small>{item.description}</small></div>
+          <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()}</span><small>{item.description}</small></div>
           <button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site_name}` : isActive && isPlaying ? `Tạm dừng ${item.site_name}` : `Nghe ${item.site_name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button>
           <div className="site-row-actions">
             <button className="row-more" aria-label={`Sửa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`Sửa ${item.site_name} · ${item.language_name}`} onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={15} /></button>
@@ -1190,9 +1187,6 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [actionError, setActionError] = useState('');
   const activeLanguages = languages.filter((language) => language.is_active);
-  const languageCoverage = languages.length
-    ? (activeLanguages.length / languages.length) * 100
-    : 0;
   const filteredLanguages = languages.filter((language) => {
     const matchesSearch = `${language.name} ${language.code}`.toLowerCase().includes(search.trim().toLowerCase());
     const matchesStatus = statusFilter === 'all'
@@ -1234,7 +1228,7 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
         is_active: !language.is_active,
       });
       setActionError('');
-      notify(language.is_active ? 'Đã tắt ngôn ngữ.' : 'Đã bật ngôn ngữ.');
+      notify(language.is_active ? 'Đã ẩn ngôn ngữ.' : 'Đã hiện ngôn ngữ.');
       try {
         await refreshLanguages();
       } catch (error) {
@@ -1245,27 +1239,11 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
     }
   };
 
-  const removeLanguage = async (language) => {
-    if (!window.confirm(`Xóa "${language.name}" khỏi danh sách ngôn ngữ? Ngôn ngữ sẽ không còn dùng được cho bài thuyết minh mới.`)) return;
-    try {
-      await deleteLanguage(language.code);
-      setActionError('');
-      notify(`Đã xóa ngôn ngữ ${language.name}.`);
-      try {
-        await refreshLanguages();
-      } catch (error) {
-        setActionError(`Đã xóa nhưng không thể tải lại danh sách: ${error.message}`);
-      }
-    } catch (error) {
-      setActionError(`Không thể xóa ngôn ngữ: ${error.message}`);
-    }
-  };
-
   return <div className="language-page">
     <section className="panel language-overview">
       <div className="language-overview-icon"><Globe2 size={22} /></div>
-      <div><span>NGÔN NGỮ ĐANG HOẠT ĐỘNG</span><strong>{activeLanguages.length} <small>/ {languages.length}</small></strong></div>
-      <div className="language-overview-bar"><div><i style={{ width: `${languageCoverage}%` }} /></div><small>Ngôn ngữ có thể dùng để dịch và tạo audio</small></div>
+      <div><span>NGÔN NGỮ ĐANG HIỂN THỊ</span><strong>{activeLanguages.length} <small>/ {languages.length}</small></strong></div>
+      <small className="language-overview-note">Ngôn ngữ có thể dùng để dịch và tạo audio</small>
     </section>
     <section className="panel language-panel">
       <div className="panel-heading language-manager-heading">
@@ -1276,7 +1254,7 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
       </div>
       <div className="language-toolbar">
         <label className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm tên hoặc mã ngôn ngữ..." /></label>
-        <label className="filter-select"><Filter size={15} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Tất cả trạng thái</option><option value="active">Đang bật</option><option value="inactive">Đang tắt</option></select><ChevronDown size={14} /></label>
+        <label className="filter-select"><Filter size={15} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">Tất cả trạng thái</option><option value="active">Đang hiển thị</option><option value="inactive">Đã ẩn</option></select><ChevronDown size={14} /></label>
       </div>
       {loadError && <div className="language-error" role="alert">Không tải được danh sách ngôn ngữ: {loadError}</div>}
       {actionError && <div className="language-error" role="alert">{actionError}</div>}
@@ -1285,11 +1263,10 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
           <span className="language-flag">{language.flag}</span>
           <div className="language-name"><strong>{language.name}</strong><small>{language.code.toUpperCase()}</small></div>
           <div className="language-places"><strong>{language.places}</strong><span>di tích đã có bản dịch</span></div>
-          <span className={`language-status ${language.is_active ? 'is-active' : 'is-inactive'}`}>{language.is_active ? 'Đang bật' : 'Đang tắt'}</span>
+          <span className={`language-status ${language.is_active ? 'is-active' : 'is-inactive'}`}>{language.is_active ? 'Đang hiển thị' : 'Đã ẩn'}</span>
           <div className="language-actions">
             <button className="icon-button" title="Sửa tên và biểu tượng" aria-label={`Sửa ${language.name}`} onClick={() => { setEditingLanguage(language); setIsModalOpen(true); }}><Pencil size={15} /></button>
-            <button className="icon-button" title={language.is_active ? 'Tắt ngôn ngữ' : 'Bật ngôn ngữ'} aria-label={`${language.is_active ? 'Tắt' : 'Bật'} ${language.name}`} disabled={language.code === 'vi'} onClick={() => toggleLanguage(language)}><Check size={15} /></button>
-            <button className="icon-button language-delete" title="Xóa ngôn ngữ" aria-label={`Xóa ${language.name}`} disabled={language.code === 'vi'} onClick={() => removeLanguage(language)}><Trash2 size={15} /></button>
+            <button className="icon-button" title={language.is_active ? 'Ẩn ngôn ngữ' : 'Hiện ngôn ngữ'} aria-label={`${language.is_active ? 'Ẩn' : 'Hiện'} ${language.name}`} disabled={language.code === 'vi'} onClick={() => toggleLanguage(language)}>{language.is_active ? <EyeOff size={15} /> : <Eye size={15} />}</button>
           </div>
         </div>
       ))}{filteredLanguages.length === 0 && <div className="language-empty">Không có ngôn ngữ phù hợp với bộ lọc.</div>}</div>
@@ -1555,14 +1532,16 @@ function SiteModal({ site, onClose, onSave }) {
   const [lat, setLat] = useState(site?.lat === '' || site?.lat == null ? '' : String(site.lat));
   const [lng, setLng] = useState(site?.lng === '' || site?.lng == null ? '' : String(site.lng));
   const [description, setDescription] = useState(site?.description ?? '');
-  const [status, setStatus] = useState(site?.status ?? 'Bản nháp');
+  const [status, setStatus] = useState(site?.status ?? 'Mở cửa');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   const submit = async (event) => {
     event.preventDefault();
-    if (name.trim().length < 2 || address.trim().length < 2 || description.trim().length < 10) {
-      setError('Nhập tên, địa chỉ hợp lệ và nội dung thuyết minh ít nhất 10 ký tự.');
+    if (name.trim().length < 2 || address.trim().length < 2 || (site && description.trim().length < 10)) {
+      setError(site
+        ? 'Nhập tên, địa chỉ hợp lệ và nội dung thuyết minh ít nhất 10 ký tự.'
+        : 'Nhập tên và địa chỉ di tích hợp lệ.');
       return;
     }
     const latitude = Number(lat);
@@ -1603,8 +1582,8 @@ function SiteModal({ site, onClose, onSave }) {
       <label>Mã di tích <em>*</em><input value={code} readOnly={Boolean(site)} onChange={(event) => { setCode(event.target.value); setError(''); }} placeholder="dinh-doc-lap" /><small className="field-hint">Mã URL duy nhất, dùng chữ thường, số và dấu gạch ngang.</small></label>
       <label>Địa chỉ <em>*</em><div className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => { setAddress(event.target.value); setError(''); }} placeholder="Số nhà, tên đường..." /></div></label>
       <div className="form-columns"><label>Vĩ độ GPS <em>*</em><input type="number" min="-90" max="90" step="any" value={lat} onChange={(event) => setLat(event.target.value)} placeholder="10.7769" /></label><label>Kinh độ GPS <em>*</em><input type="number" min="-180" max="180" step="any" value={lng} onChange={(event) => setLng(event.target.value)} placeholder="106.6952" /></label></div>
-      <div className="form-columns"><label>Loại hình<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Di tích lịch sử</option><option>Lịch sử</option><option>Kiến trúc</option><option>Bảo tàng</option><option>Văn hóa</option></select></label><label>Trạng thái<select value={status} onChange={(event) => setStatus(event.target.value)}><option>Bản nháp</option><option>Đang hoạt động</option></select></label></div>
-      <label>Nội dung thuyết minh <em>*</em><textarea rows="4" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Nhập nội dung để hệ thống dùng cho thuyết minh và tạo audio..." /></label>
+      <div className="form-columns"><label>Loại hình<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Di tích lịch sử</option><option>Lịch sử</option><option>Kiến trúc</option><option>Bảo tàng</option><option>Văn hóa</option></select></label><label>Trạng thái<select value={status} onChange={(event) => setStatus(event.target.value)}><option>Mở cửa</option><option>Đóng cửa</option></select></label></div>
+      {site && <label>Nội dung thuyết minh <em>*</em><textarea rows="4" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Nhập nội dung để hệ thống dùng cho thuyết minh và tạo audio..." /></label>}
       {error && <div className="form-error" role="alert">{error}</div>}
     </div>
     <div className="modal-foot"><button type="button" className="button button-secondary" onClick={onClose} disabled={saving}>Hủy</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Đang lưu…' : site ? 'Lưu thay đổi' : 'Tạo di tích'} {!saving && <ArrowRight size={15} />}</button></div>

@@ -42,7 +42,7 @@ class SiteAdminForm(BaseModel):
     lng: float = Field(ge=-180, le=180)
     address: str = Field(min_length=2, max_length=300)
     category: str = Field(min_length=2, max_length=100)
-    description: str = Field(min_length=10, max_length=20000)
+    description: str = Field(default="", max_length=20000)
     is_active: bool = True
 
 class SiteAdminUpdate(BaseModel):
