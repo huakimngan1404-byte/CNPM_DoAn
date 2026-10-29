@@ -2,7 +2,7 @@ import { AppState, Linking } from 'react-native';
 import * as Location from 'expo-location';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, ImageBackground, Modal, Platform, Pressable,
+  ActivityIndicator, ImageBackground, Modal, Platform, Pressable, useWindowDimensions,
   ScrollView, StyleSheet, Switch, Text as NativeText, TextInput as NativeTextInput, View
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -1794,10 +1794,17 @@ function BottomTabs({ activeTab, onChange }) {
 }
 
 function LanguagePicker({ visible, selected, mode, languages: availableLanguages, onClose, onSelect }) {
+  const { height } = useWindowDimensions();
+
   return <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-    <Pressable style={styles.modalScrim} onPress={onClose}><Pressable style={styles.languageSheet} onPress={(event) => event.stopPropagation()}>
+    <Pressable style={styles.modalScrim} onPress={onClose}><Pressable style={[styles.languageSheet, { maxHeight: height * 0.9 }]} onPress={(event) => event.stopPropagation()}>
       <View style={styles.sheetHandle} /><View style={styles.sheetHead}><View><Text style={styles.sheetEyebrow}>CÁ NHÂN HÓA TRẢI NGHIỆM</Text><Text style={styles.sheetTitle}>Chọn ngôn ngữ</Text><Text style={styles.sheetSub}>{mode === 'audio' ? 'Nội dung thuyết minh bạn muốn nghe' : 'Ngôn ngữ giao diện'}</Text></View><Pressable style={styles.sheetClose} onPress={onClose}><X size={18} color="#77716A" /></Pressable></View>
-      {availableLanguages.map((item) => (
+      <ScrollView
+        style={styles.languageList}
+        contentContainerStyle={styles.languageListContent}
+        showsVerticalScrollIndicator
+        nestedScrollEnabled
+      >{availableLanguages.map((item) => (
     <Pressable 
         key={item.id} 
         style={[
@@ -1825,7 +1832,7 @@ function LanguagePicker({ visible, selected, mode, languages: availableLanguages
             <View style={styles.languageRadio} />
         )}
     </Pressable>
-))}
+))}</ScrollView>
       <Text style={styles.sheetFootnote}>Bạn có thể đổi ngôn ngữ bất cứ lúc nào.</Text>
     </Pressable></Pressable>
   </Modal>;
@@ -2224,13 +2231,15 @@ const styles = StyleSheet.create({
   tabLabelActive: { color: accent, fontWeight: '800' },
   activeTabDot: { position: 'absolute', top: -5, width: 3, height: 3, borderRadius: 2, backgroundColor: accent },
   modalScrim: { flex: 1, justifyContent: 'flex-end', backgroundColor: '#211D1A77' },
-  languageSheet: { paddingHorizontal: 18, paddingTop: 9, paddingBottom: Platform.OS === 'web' ? 16 : 28, borderTopLeftRadius: 21, borderTopRightRadius: 21, backgroundColor: '#FBFAF8' },
+  languageSheet: { flexShrink: 1, overflow: 'hidden', paddingHorizontal: 18, paddingTop: 9, paddingBottom: Platform.OS === 'web' ? 16 : 28, borderTopLeftRadius: 21, borderTopRightRadius: 21, backgroundColor: '#FBFAF8' },
   sheetHandle: { alignSelf: 'center', width: 35, height: 4, marginBottom: 17, borderRadius: 3, backgroundColor: '#D9D3CD' },
   sheetHead: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 13 },
   sheetEyebrow: { color: accent, fontSize: 7, fontWeight: '800', letterSpacing: 0.9 },
   sheetTitle: { marginTop: 4, color: ink, fontSize: 19, fontWeight: '800', letterSpacing: -0.4 },
   sheetSub: { marginTop: 3, color: '#99928C', fontSize: 8 },
   sheetClose: { width: 31, height: 31, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#F0ECE8' },
+  languageList: { flexShrink: 1, maxHeight: '72%' },
+  languageListContent: { paddingBottom: 2 },
   languageOption: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: '#EEEAE6', borderRadius: 10, backgroundColor: '#fff' },
   languageOptionSelected: { borderColor: accent, backgroundColor: '#FFF7F3' },
   languageOptionFlag: { width: 31, height: 31, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#F7F5F2' },

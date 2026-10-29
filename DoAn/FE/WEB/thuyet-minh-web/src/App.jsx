@@ -67,17 +67,31 @@ const sectionTitles = {
 
 const supportedLanguages = initialLanguages;
 const languageCodeSuggestions = [
-  { code: 'es', name: 'Español' },
-  { code: 'it', name: 'Italiano' },
-  { code: 'pt', name: 'Português' },
-  { code: 'ru', name: 'Русский' },
-  { code: 'th', name: 'ไทย' },
-  { code: 'ar', name: 'العربية' },
-  { code: 'hi', name: 'हिन्दी' },
-  { code: 'id', name: 'Bahasa Indonesia' },
-  { code: 'ms', name: 'Bahasa Melayu' },
-  { code: 'nl', name: 'Nederlands' },
-  { code: 'tr', name: 'Türkçe' },
+  { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
+  { code: 'es', name: 'Español', flag: '🇪🇸' },
+  { code: 'it', name: 'Italiano', flag: '🇮🇹' },
+  { code: 'pt', name: 'Português', flag: '🇵🇹' },
+  { code: 'pt-br', name: 'Português (Brasil)', flag: '🇧🇷' },
+  { code: 'ru', name: 'Русский', flag: '🇷🇺' },
+  { code: 'th', name: 'ไทย', flag: '🇹🇭' },
+  { code: 'ar', name: 'العربية', flag: '🇸🇦' },
+  { code: 'hi', name: 'हिन्दी', flag: '🇮🇳' },
+  { code: 'id', name: 'Bahasa Indonesia', flag: '🇮🇩' },
+  { code: 'ms', name: 'Bahasa Melayu', flag: '🇲🇾' },
+  { code: 'nl', name: 'Nederlands', flag: '🇳🇱' },
+  { code: 'tr', name: 'Türkçe', flag: '🇹🇷' },
+  { code: 'pl', name: 'Polski', flag: '🇵🇱' },
+  { code: 'sv', name: 'Svenska', flag: '🇸🇪' },
+  { code: 'da', name: 'Dansk', flag: '🇩🇰' },
+  { code: 'no', name: 'Norsk', flag: '🇳🇴' },
+  { code: 'fi', name: 'Suomi', flag: '🇫🇮' },
+  { code: 'el', name: 'Ελληνικά', flag: '🇬🇷' },
+  { code: 'cs', name: 'Čeština', flag: '🇨🇿' },
+  { code: 'hu', name: 'Magyar', flag: '🇭🇺' },
+  { code: 'ro', name: 'Română', flag: '🇷🇴' },
+  { code: 'uk', name: 'Українська', flag: '🇺🇦' },
+  { code: 'he', name: 'עברית', flag: '🇮🇱' },
+  { code: 'tl', name: 'Filipino', flag: '🇵🇭' },
 ];
 
 const adminAuthRequired = true;
@@ -1217,9 +1231,11 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
       || (statusFilter === 'active' ? language.is_active : !language.is_active);
     return matchesSearch && matchesStatus;
   });
-  const addableLanguages = supportedLanguages.filter(
-    (language) => !languages.some((current) => current.code === language.code),
-  );
+  const addableLanguages = [...supportedLanguages, ...languageCodeSuggestions]
+    .filter((language, index, available) => (
+      available.findIndex((candidate) => candidate.code === language.code) === index
+    ))
+    .filter((language) => !languages.some((current) => current.code === language.code));
 
   const refreshLanguages = async () => {
     const records = await fetchAdminLanguages();
@@ -1305,8 +1321,8 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
 
 function LanguageModal({ language, availableLanguages, onClose, onSave }) {
   const [code, setCode] = useState(language?.code ?? availableLanguages[0]?.code ?? '');
-  const [name, setName] = useState(language?.name ?? '');
-  const [flag, setFlag] = useState(language?.flag ?? '');
+  const [name, setName] = useState(language?.name ?? availableLanguages[0]?.name ?? '');
+  const [flag, setFlag] = useState(language?.flag ?? availableLanguages[0]?.flag ?? '');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -1333,8 +1349,19 @@ function LanguageModal({ language, availableLanguages, onClose, onSave }) {
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}><form className="site-modal language-modal" onSubmit={submit}>
     <div className="modal-head"><div><span className="modal-icon"><Globe2 size={18} /></span><div><h2>{language ? 'Chỉnh sửa ngôn ngữ' : 'Thêm ngôn ngữ'}</h2><p>Thông tin được lưu vào Backend.</p></div></div><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose} disabled={saving}><X size={19} /></button></div>
     <div className="modal-body">
-      <label>Mã ngôn ngữ <em>*</em><input autoFocus={!language} list="language-code-suggestions" value={code} disabled={Boolean(language)} onChange={(event) => setCode(event.target.value.toLowerCase())} maxLength={35} placeholder="Ví dụ: es, it, pt-BR" /><datalist id="language-code-suggestions">
-        {[...availableLanguages, ...languageCodeSuggestions].map((available) => <option key={available.code} value={available.code}>{available.name}</option>)}
+      <label>Mã ngôn ngữ <em>*</em><input autoFocus={!language} list="language-code-suggestions" value={code} disabled={Boolean(language)} onChange={(event) => {
+        const selectedCode = event.target.value.toLowerCase();
+        const selectedSuggestion = availableLanguages.find((available) => available.code === selectedCode);
+        setCode(selectedCode);
+        if (selectedSuggestion) {
+          setName(selectedSuggestion.name);
+          setFlag(selectedSuggestion.flag ?? '');
+        } else {
+          setName('');
+          setFlag('');
+        }
+      }} maxLength={35} placeholder="Ví dụ: es, it, pt-BR" /><datalist id="language-code-suggestions">
+        {availableLanguages.map((available) => <option key={available.code} value={available.code}>{available.name}</option>)}
       </datalist><small className="field-hint">Nhập mã ngôn ngữ ISO, ví dụ es (Tây Ban Nha), it (Ý), pt (Bồ Đào Nha).</small></label>
       <label>Tên hiển thị <em>*</em><input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} placeholder="Ví dụ: Tiếng Việt" /></label>
       <label>Biểu tượng <em>*</em><input value={flag} onChange={(event) => setFlag(event.target.value)} maxLength={16} placeholder="Ví dụ: 🇻🇳" /></label>

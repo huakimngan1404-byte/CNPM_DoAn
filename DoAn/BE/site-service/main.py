@@ -27,3 +27,4 @@ async def health_check():
 @app.on_event("startup")
 async def initialize_admin_account():
     await AdminAuthService().ensure_initial_account()
+    await site_service.ensure_language_catalog_seeded()

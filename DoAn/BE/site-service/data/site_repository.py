@@ -89,35 +89,9 @@ DEFAULT_SITES = (
 DEFAULT_LANGUAGES = (
     {"code": "vi", "name": "Tiếng Việt", "flag": "🇻🇳", "is_active": True},
     {"code": "en", "name": "English", "flag": "🇬🇧", "is_active": True},
-    {"code": "zh", "name": "中文", "flag": "🇨🇳", "is_active": True},
     {"code": "ja", "name": "日本語", "flag": "🇯🇵", "is_active": True},
-    {"code": "ko", "name": "한국어", "flag": "🇰🇷", "is_active": True},
+    {"code": "zh", "name": "中文", "flag": "🇨🇳", "is_active": True},
     {"code": "fr", "name": "Français", "flag": "🇫🇷", "is_active": True},
-    {"code": "de", "name": "Deutsch", "flag": "🇩🇪", "is_active": True},
-    {"code": "es", "name": "Español", "flag": "🇪🇸", "is_active": True},
-    {"code": "it", "name": "Italiano", "flag": "🇮🇹", "is_active": True},
-    {"code": "pt", "name": "Português", "flag": "🇵🇹", "is_active": True},
-    {"code": "pt-br", "name": "Português (Brasil)", "flag": "🇧🇷", "is_active": True},
-    {"code": "ru", "name": "Русский", "flag": "🇷🇺", "is_active": True},
-    {"code": "th", "name": "ไทย", "flag": "🇹🇭", "is_active": True},
-    {"code": "ar", "name": "العربية", "flag": "🇸🇦", "is_active": True},
-    {"code": "hi", "name": "हिन्दी", "flag": "🇮🇳", "is_active": True},
-    {"code": "id", "name": "Bahasa Indonesia", "flag": "🇮🇩", "is_active": True},
-    {"code": "ms", "name": "Bahasa Melayu", "flag": "🇲🇾", "is_active": True},
-    {"code": "nl", "name": "Nederlands", "flag": "🇳🇱", "is_active": True},
-    {"code": "tr", "name": "Türkçe", "flag": "🇹🇷", "is_active": True},
-    {"code": "pl", "name": "Polski", "flag": "🇵🇱", "is_active": True},
-    {"code": "sv", "name": "Svenska", "flag": "🇸🇪", "is_active": True},
-    {"code": "da", "name": "Dansk", "flag": "🇩🇰", "is_active": True},
-    {"code": "no", "name": "Norsk", "flag": "🇳🇴", "is_active": True},
-    {"code": "fi", "name": "Suomi", "flag": "🇫🇮", "is_active": True},
-    {"code": "el", "name": "Ελληνικά", "flag": "🇬🇷", "is_active": True},
-    {"code": "cs", "name": "Čeština", "flag": "🇨🇿", "is_active": True},
-    {"code": "hu", "name": "Magyar", "flag": "🇭🇺", "is_active": True},
-    {"code": "ro", "name": "Română", "flag": "🇷🇴", "is_active": True},
-    {"code": "uk", "name": "Українська", "flag": "🇺🇦", "is_active": True},
-    {"code": "he", "name": "עברית", "flag": "🇮🇱", "is_active": True},
-    {"code": "tl", "name": "Filipino", "flag": "🇵🇭", "is_active": True},
 )
 
 
@@ -141,10 +115,42 @@ class SiteRepository:
         return {asset["_id"] async for asset in cursor}
 
     async def ensure_language_catalog(self):
+        default_codes = [language["code"] for language in DEFAULT_LANGUAGES]
         for language in DEFAULT_LANGUAGES:
             await db.languages.update_one(
                 {"_id": language["code"]},
-                {"$setOnInsert": {**language, "_id": language["code"]}},
+                {
+                    "$setOnInsert": {
+                        **language,
+                        "_id": language["code"],
+                    },
+                    "$set": {
+                        "is_deleted": False,
+                        "catalog_hidden_until_added": False,
+                    },
+                },
+                upsert=True,
+            )
+        migrations = db["language_catalog_migrations"]
+        migration_id = "hide-extra-languages-until-added-v1"
+        if not await migrations.find_one({"_id": migration_id}):
+            await db.languages.update_many(
+                {"_id": {"$nin": default_codes}},
+                {
+                    "$set": {
+                        "is_active": False,
+                        "is_deleted": True,
+                        "catalog_hidden_until_added": True,
+                    }
+                },
+            )
+            await migrations.update_one(
+                {"_id": migration_id},
+                {
+                    "$setOnInsert": {
+                        "completed_at": datetime.now(timezone.utc),
+                    }
+                },
                 upsert=True,
             )
 
@@ -229,7 +235,7 @@ class SiteRepository:
         return result.deleted_count > 0
 
     async def get_languages(self, active_only: bool = False):
-        filters = {"is_deleted": {"$ne": True}}
+        filters = {"is_deleted": False}
         if active_only:
             filters["is_active"] = True
         cursor = db.languages.find(filters)
@@ -258,6 +264,7 @@ class SiteRepository:
                     "flag": language["flag"],
                     "is_active": language["is_active"],
                     "is_deleted": False,
+                    "catalog_hidden_until_added": False,
                 },
                 "$setOnInsert": {"_id": language["code"]},
             },
@@ -265,14 +272,15 @@ class SiteRepository:
         )
 
     async def update_language(self, code: str, updates: dict):
+        updates = {**updates, "catalog_hidden_until_added": False}
         return await db.languages.update_one(
-            {"_id": code, "is_deleted": {"$ne": True}},
+            {"_id": code, "is_deleted": False},
             {"$set": updates},
         )
 
     async def delete_language(self, code: str):
         return await db.languages.update_one(
-            {"_id": code, "is_deleted": {"$ne": True}},
+            {"_id": code, "is_deleted": False},
             {"$set": {"is_active": False, "is_deleted": True}},
         )
 
