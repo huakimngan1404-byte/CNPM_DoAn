@@ -733,13 +733,14 @@ function HomeScreen({ language, sites: siteList, savedIds, onLanguage, onShowQr,
   const carouselDrag = useMouseDragScroll();
   const [nearbyPage, setNearbyPage] = useState(0);
   const [nearbyWidth, setNearbyWidth] = useState(0);
+  const nearbyPageSize = 5;
   const featured = siteList.slice(0, 3);
-  const nearbyColumns = Math.max(1, Math.min(4, Math.floor((nearbyWidth + 10) / 234)));
-  const nearbyPageCount = Math.max(1, Math.ceil(siteList.length / nearbyColumns));
+  const nearbyColumns = Math.max(1, Math.min(5, Math.floor((nearbyWidth + 10) / 234)));
+  const nearbyPageCount = Math.max(1, Math.ceil(siteList.length / nearbyPageSize));
   const currentNearbyPage = Math.min(nearbyPage, nearbyPageCount - 1);
   const nearbySites = siteList.slice(
-    currentNearbyPage * nearbyColumns,
-    (currentNearbyPage + 1) * nearbyColumns,
+    currentNearbyPage * nearbyPageSize,
+    (currentNearbyPage + 1) * nearbyPageSize,
   );
   const nearbyCardWidth = nearbyWidth
     ? Math.min(270, (nearbyWidth - 16 - (nearbyColumns - 1) * 10) / nearbyColumns)
