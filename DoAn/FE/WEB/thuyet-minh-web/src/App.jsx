@@ -347,14 +347,6 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
                 <Plus size={17} /> Thêm di tích
               </button>
             )}
-            
-            {/* Trang Bài thuyết minh -> Thêm bài thuyết minh */}
-            {activePage === 'narrations' && (
-              <button className="button button-primary" onClick={() => notify('Form thêm bài thuyết minh sẽ hiển thị ở đây.')}>
-                <Plus size={17} /> Thêm bài thuyết minh
-              </button>
-            )}
-
           </div>
           {activePage === 'dashboard' && <Dashboard sites={sites} languages={languages} onNavigate={setActivePage} />}
           {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} allSites={sites} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onDelete={removeSite} />}
