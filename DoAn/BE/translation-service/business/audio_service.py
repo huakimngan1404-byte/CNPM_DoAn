@@ -39,8 +39,67 @@ VOICE_MAPPING = {
     "fr": "fr-FR-DeniseNeural",
     "de": "de-DE-KatjaNeural",
     "es": "es-ES-ElviraNeural",
+    "it": "it-IT-ElsaNeural",
+    "pt": "pt-PT-RaquelNeural",
+    "pt-br": "pt-BR-FranciscaNeural",
     "ru": "ru-RU-SvetlanaNeural",
     "th": "th-TH-PremwadeeNeural",
+    "ar": "ar-EG-SalmaNeural",
+    "hi": "hi-IN-SwaraNeural",
+    "id": "id-ID-GadisNeural",
+    "ms": "ms-MY-YasminNeural",
+    "nl": "nl-NL-ColetteNeural",
+    "tr": "tr-TR-EmelNeural",
+    "pl": "pl-PL-ZofiaNeural",
+    "sv": "sv-SE-SofieNeural",
+    "da": "da-DK-ChristelNeural",
+    "no": "nb-NO-PernilleNeural",
+    "fi": "fi-FI-NooraNeural",
+    "el": "el-GR-AthinaNeural",
+    "cs": "cs-CZ-VlastaNeural",
+    "hu": "hu-HU-NoemiNeural",
+    "ro": "ro-RO-AlinaNeural",
+    "uk": "uk-UA-PolinaNeural",
+    "he": "he-IL-HilaNeural",
+    "tl": "fil-PH-BlessicaNeural",
+}
+
+TRANSLATION_LANGUAGE_MAP = {
+    "pt-br": "pt",
+}
+
+LANGUAGE_NAMES = {
+    "vi": "Vietnamese",
+    "en": "English",
+    "zh": "Chinese",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "fr": "French",
+    "de": "German",
+    "es": "Spanish",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "pt-br": "Brazilian Portuguese",
+    "ru": "Russian",
+    "th": "Thai",
+    "ar": "Arabic",
+    "hi": "Hindi",
+    "id": "Indonesian",
+    "ms": "Malay",
+    "nl": "Dutch",
+    "tr": "Turkish",
+    "pl": "Polish",
+    "sv": "Swedish",
+    "da": "Danish",
+    "no": "Norwegian",
+    "fi": "Finnish",
+    "el": "Greek",
+    "cs": "Czech",
+    "hu": "Hungarian",
+    "ro": "Romanian",
+    "uk": "Ukrainian",
+    "he": "Hebrew",
+    "tl": "Filipino",
 }
 
 MYMEMORY_LANG_MAP = {
@@ -54,9 +113,64 @@ MYMEMORY_LANG_MAP = {
     "fr": "fr-FR",
     "de": "de-DE",
     "es": "es-ES",
+    "it": "it-IT",
+    "pt": "pt-PT",
+    "pt-br": "pt-BR",
     "ru": "ru-RU",
     "th": "th-TH",
+    "ar": "ar-SA",
+    "hi": "hi-IN",
+    "id": "id-ID",
+    "ms": "ms-MY",
+    "nl": "nl-NL",
+    "tr": "tr-TR",
+    "pl": "pl-PL",
+    "sv": "sv-SE",
+    "da": "da-DK",
+    "no": "nb-NO",
+    "fi": "fi-FI",
+    "el": "el-GR",
+    "cs": "cs-CZ",
+    "hu": "hu-HU",
+    "ro": "ro-RO",
+    "uk": "uk-UA",
+    "he": "he-IL",
+    "tl": "tl-PH",
 }
+
+_VOICE_CATALOG = None
+
+
+async def _resolve_voice(target_lang: str, voice_cache: dict) -> str:
+    global _VOICE_CATALOG
+    normalized_lang = target_lang.lower().strip()
+    if normalized_lang in voice_cache:
+        return voice_cache[normalized_lang]
+
+    voice = VOICE_MAPPING.get(normalized_lang)
+    if voice is None:
+        base_lang = normalized_lang.split("-", 1)[0]
+        voice = VOICE_MAPPING.get(base_lang)
+    if voice is None:
+        if _VOICE_CATALOG is None:
+            _VOICE_CATALOG = await edge_tts.list_voices()
+        base_lang = normalized_lang.split("-", 1)[0]
+        candidates = [
+            item for item in _VOICE_CATALOG
+            if item.get("Locale", "").lower().split("-", 1)[0] == base_lang
+        ]
+        candidates.sort(
+            key=lambda item: (
+                item.get("Locale", "").lower() != normalized_lang,
+                item.get("Gender") != "Female",
+            )
+        )
+        if not candidates:
+            raise ValueError(f"No text-to-speech voice is available for language '{target_lang}'.")
+        voice = candidates[0]["ShortName"]
+
+    voice_cache[normalized_lang] = voice
+    return voice
 
 
 class TTSService:
@@ -64,6 +178,7 @@ class TTSService:
         self.cache_dir = cache_dir
         os.makedirs(self.cache_dir, exist_ok=True)
         self.audio_file_repository = AudioFileRepository()
+        self._voice_cache = {}
         self._translate_cached = functools.lru_cache(maxsize=256)(self._translate_cached_impl)
         self.ai_translator = AudioService(audio_dir=cache_dir)
 
@@ -74,8 +189,15 @@ class TTSService:
         raw = f"{target_lang.lower().strip()}:{text.strip()}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
+    def _get_audio_hash(self, text: str, target_lang: str) -> str:
+        normalized_lang = target_lang.lower().strip()
+        base_lang = normalized_lang.split("-", 1)[0]
+        if normalized_lang not in VOICE_MAPPING and base_lang not in VOICE_MAPPING:
+            return self._get_hash(f"dynamic-voice:{text}", normalized_lang)
+        return self._get_hash(text, normalized_lang)
+
     def get_audio_cache_key(self, text: str, target_lang: str) -> str:
-        return f"{target_lang.lower().strip()}_{self._get_hash(text, target_lang)}"
+        return f"{target_lang.lower().strip()}_{self._get_audio_hash(text, target_lang)}"
 
     def _translate_cached_impl(
         self,
@@ -158,7 +280,7 @@ class TTSService:
                 source_lang,
             )
 
-        file_hash = self._get_hash(translated_text, target_lang)
+        file_hash = self._get_audio_hash(translated_text, target_lang)
         filename = f"{target_lang}_{file_hash}.mp3"
         filepath = os.path.join(self.cache_dir, filename)
         is_hit = os.path.isfile(filepath) and os.path.getsize(filepath) > 0
@@ -167,7 +289,7 @@ class TTSService:
             if os.path.exists(filepath):
                 os.remove(filepath)
             os.makedirs(self.cache_dir, exist_ok=True)
-            voice = VOICE_MAPPING.get(target_lang.lower(), "en-US-AriaNeural")
+            voice = await _resolve_voice(target_lang, self._voice_cache)
             communicate = edge_tts.Communicate(translated_text, voice)
             temp_fd, temp_path = tempfile.mkstemp(
                 dir=self.cache_dir,
@@ -254,15 +376,18 @@ class AudioService:
         self.mistral_api_key = os.getenv("MISTRAL_API_KEY", "")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
         self.mymemory_email = os.getenv("MYMEMORY_EMAIL", "")
+        self._voice_cache = {}
 
     def _get_hash(self, text: str, target_lang: str) -> str:
         raw = f"{target_lang.lower().strip()}:{text.strip()}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     def _build_prompt(self, source_lang: str, target_lang: str) -> str:
+        source_name = LANGUAGE_NAMES.get(source_lang.lower(), source_lang)
+        target_name = LANGUAGE_NAMES.get(target_lang.lower(), target_lang)
         return (
             f"Bạn là chuyên gia dịch thuật thuyết minh di tích lịch sử - văn hóa. "
-            f"Hãy dịch đoạn thuyết minh sau từ '{source_lang}' sang '{target_lang}' "
+            f"Hãy dịch đoạn thuyết minh sau từ '{source_name}' sang '{target_name}' "
             f"với văn phong tự nhiên, trang trọng, hấp dẫn khách tham quan. "
             f"CHỈ trả về nội dung bản dịch, không thêm bất kỳ ghi chú nào."
         )
@@ -424,21 +549,36 @@ class AudioService:
 
     async def _google_gtx_direct(self, chunk: str, source_lang: str, target_lang: str) -> Optional[str]:
         url = "https://translate.googleapis.com/translate_a/single"
-        params = {"client": "gtx", "sl": source_lang, "tl": target_lang, "dt": "t", "q": chunk}
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, timeout=10) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return "".join(part[0] for part in data[0] if part[0])
-        except Exception as e:
-            logger.warning(f"[Google GTX Direct] Lỗi: {e}")
+        source_code = TRANSLATION_LANGUAGE_MAP.get(source_lang.lower(), source_lang)
+        target_code = TRANSLATION_LANGUAGE_MAP.get(target_lang.lower(), target_lang)
+        params = {"client": "gtx", "sl": source_code, "tl": target_code, "dt": "t", "q": chunk}
+        for attempt in range(3):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params, timeout=8) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            return "".join(part[0] for part in data[0] if part[0])
+                        if resp.status not in {429, 500, 502, 503, 504, 520}:
+                            logger.warning("[Google GTX Direct] Translation failed with status %s", resp.status)
+                            return None
+                        logger.warning(
+                            "[Google GTX Direct] Temporary failure %s (attempt %s/3)",
+                            resp.status,
+                            attempt + 1,
+                        )
+            except Exception as e:
+                logger.warning("[Google GTX Direct] Request failed (attempt %s/3): %s", attempt + 1, type(e).__name__)
+            if attempt < 2:
+                await asyncio.sleep(0.5 * (attempt + 1))
         return None
 
     def _deep_translator_fallback(self, chunk: str, source_lang: str, target_lang: str) -> str:
+        source_code = TRANSLATION_LANGUAGE_MAP.get(source_lang.lower(), source_lang)
+        target_code = TRANSLATION_LANGUAGE_MAP.get(target_lang.lower(), target_lang)
         # 1. GoogleTranslator
         try:
-            res = GoogleTranslator(source=source_lang, target=target_lang).translate(chunk)
+            res = GoogleTranslator(source=source_code, target=target_code).translate(chunk)
             if res:
                 return res
         except Exception as e:
@@ -446,8 +586,8 @@ class AudioService:
 
         # 2. MyMemoryTranslator (chia nhỏ 450 ký tự)
         try:
-            mm_src = MYMEMORY_LANG_MAP.get(source_lang.lower(), source_lang)
-            mm_tgt = MYMEMORY_LANG_MAP.get(target_lang.lower(), target_lang)
+            mm_src = MYMEMORY_LANG_MAP.get(source_lang.lower(), source_code)
+            mm_tgt = MYMEMORY_LANG_MAP.get(target_lang.lower(), target_code)
             parts = []
             for sc in self._split_chunks(chunk, max_length=450):
                 tr = MyMemoryTranslator(
@@ -467,7 +607,7 @@ class AudioService:
             try:
                 src = "vi" if source_lang == "auto" else source_lang
                 res = LibreTranslator(
-                    source=src, target=target_lang, base_url=mirror, use_free_api=True
+                    source=src, target=target_code, base_url=mirror, use_free_api=True
                 ).translate(chunk)
                 if res:
                     return res
@@ -537,7 +677,7 @@ class AudioService:
 
         # Nếu file âm thanh đã tồn tại trên ổ cứng thì dùng lại ngay
         if not os.path.exists(filepath):
-            voice = VOICE_MAPPING.get(target_lang.lower(), "en-US-AriaNeural")
+            voice = await _resolve_voice(target_lang, self._voice_cache)
             communicate = edge_tts.Communicate(translated_text, voice)
             await communicate.save(filepath)
 

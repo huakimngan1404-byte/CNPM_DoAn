@@ -7,6 +7,7 @@ import pytest
 import asyncio
 import logging
 from unittest.mock import patch, MagicMock, AsyncMock, call
+from business import audio_service
 from business.audio_service import TTSService
 from business.site_translation_service import SiteTranslationService
 from presentation.audio_router import get_audio_file, get_site_translation
@@ -29,7 +30,7 @@ class TestDatabaseBackedSiteTranslation:
         return str(audio_path)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("lang", ["fr", "de"])
+    @pytest.mark.parametrize("lang", ["fr", "de", "es", "ru", "th", "it"])
     @patch("presentation.audio_router.tts_service.generate_audio", new_callable=AsyncMock)
     @patch("presentation.audio_router.translate_with_timeout", new_callable=AsyncMock)
     async def test_translates_additional_voice_languages(
@@ -74,6 +75,102 @@ class TestDatabaseBackedSiteTranslation:
         assert result["description"] == f"Translated to {lang}"
         assert result["audio_url"].startswith("http://localhost:8001/api/audio/files/")
         audio_assets.update_one.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_google_translation_retries_temporary_520(self, monkeypatch):
+        responses = [520, 200]
+
+        class FakeResponse:
+            def __init__(self, status):
+                self.status = status
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def json(self):
+                return [[["Traduit", "source", None, None]]]
+
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            def get(self, *_args, **_kwargs):
+                return FakeResponse(responses.pop(0))
+
+        monkeypatch.setattr(audio_service.aiohttp, "ClientSession", FakeSession)
+        monkeypatch.setattr(audio_service.asyncio, "sleep", AsyncMock())
+
+        translator = audio_service.AudioService()
+        result = await translator._google_gtx_direct("Bonjour", "vi", "fr")
+
+        assert result == "Traduit"
+        assert responses == []
+
+    @pytest.mark.asyncio
+    async def test_resolves_edge_voice_for_language_not_in_default_mapping(self, monkeypatch):
+        monkeypatch.setattr(
+            audio_service,
+            "_VOICE_CATALOG",
+            [
+                {"Locale": "xx-XX", "Gender": "Male", "ShortName": "xx-XX-VoiceNeural"},
+            ],
+        )
+
+        voice = await audio_service._resolve_voice("xx", {})
+
+        assert voice == "xx-XX-VoiceNeural"
+
+    def test_dynamic_voice_audio_uses_a_new_cache_key(self, tmp_path):
+        service = TTSService(cache_dir=str(tmp_path))
+        text = "Test narration"
+
+        assert service.get_audio_cache_key(text, "xx") != (
+            f"xx_{service._get_hash(text, 'xx')}"
+        )
+
+    def test_tts_has_explicit_voices_for_more_than_15_languages(self):
+        assert len(audio_service.VOICE_MAPPING) >= 20
+
+    @pytest.mark.asyncio
+    async def test_vietnamese_site_narration_uses_manual_source_without_translation(self, tmp_path):
+        audio_path = self.create_audio_file(tmp_path, "vi_audio-key.mp3")
+        repository = MagicMock()
+        repository.get_language = AsyncMock(return_value={"code": "vi", "is_active": True})
+        repository.get_site = AsyncMock(
+            return_value={"code": "site-1", "description": "Bài tiếng Việt tự viết"}
+        )
+        repository.get_translation = AsyncMock(return_value=None)
+        repository.save_translation = AsyncMock()
+        repository.get_audio_asset = AsyncMock(return_value=None)
+        repository.save_audio_asset = AsyncMock()
+        translator = AsyncMock()
+        tts = MagicMock()
+        tts.get_audio_cache_key.return_value = "vi_audio-key"
+        tts.generate_audio = AsyncMock(return_value=(audio_path, False, "audio-key"))
+        service = SiteTranslationService(
+            repository,
+            tts,
+            "http://localhost:8001",
+            translator,
+        )
+
+        result = await service.get_translation("site-1", "vi")
+
+        translator.assert_not_awaited()
+        tts.generate_audio.assert_awaited_once_with(
+            "Bài tiếng Việt tự viết",
+            "vi",
+            do_translate=False,
+        )
+        repository.save_audio_asset.assert_awaited_once()
+        assert result["description"] == "Bài tiếng Việt tự viết"
+        assert result["audio_url"].endswith("/api/audio/files/vi_audio-key")
 
     @pytest.mark.asyncio
     @patch("presentation.audio_router.tts_service.generate_audio", new_callable=AsyncMock)

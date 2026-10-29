@@ -18,7 +18,7 @@ import {
 import QRCode from 'react-native-qrcode-svg';
 import { languages, sites } from './src/data/heritage.js';
 import {
-  apiBaseUrl, fetchNearbySites, fetchSiteAudio, fetchSites,
+  apiBaseUrl, fetchActiveLanguages, fetchNearbySites, fetchSiteAudio, fetchSites,
   heartbeatVisitor, leaveVisitor, recordNarrationListen,
 } from './src/services/api.js';
 import MapCanvas from './src/components/MapCanvas';
@@ -88,6 +88,7 @@ export default function App() {
   const [siteList, setSiteList] = useState(sites);
   const [appLanguage, setAppLanguage] = useState(languages[0]);
   const [audioLanguage, setAudioLanguage] = useState(languages[0]);
+  const [audioLanguages, setAudioLanguages] = useState(languages);
   const [languagePicker, setLanguagePicker] = useState(false);
   const [qrCodeVisible, setQrCodeVisible] = useState(false);
   const [languagePickerMode, setLanguagePickerMode] = useState('app');
@@ -481,11 +482,13 @@ useEffect(() => {
   const retryFetchSites = () => {
     setApiLoading(true);
     setApiError('');
-    fetchSites()
-      .then((records) => {
+    Promise.all([fetchSites(), fetchActiveLanguages()])
+      .then(([records, activeLanguages]) => {
       const remoteSites = records.length ? records : sites;
         setSiteList(remoteSites);
         setSelectedSite((current) => remoteSites.find((site) => site.id === current?.id) || remoteSites[0] || null);
+        setAudioLanguages(activeLanguages);
+        setAudioLanguage((current) => activeLanguages.find((language) => language.id === current.id) || activeLanguages[0] || current);
       setApiError('');
     })
     .catch((error) => {
@@ -628,6 +631,7 @@ useEffect(() => {
         visible={languagePicker}
         selected={(languagePickerMode === 'audio' ? audioLanguage : appLanguage).id}
         mode={languagePickerMode}
+        languages={languagePickerMode === 'audio' ? audioLanguages : languages}
         onClose={() => setLanguagePicker(false)}
         onSelect={(item) => {
           if (languagePickerMode === 'audio') {
@@ -1789,11 +1793,11 @@ function BottomTabs({ activeTab, onChange }) {
   })}</View>;
 }
 
-function LanguagePicker({ visible, selected, mode, onClose, onSelect }) {
+function LanguagePicker({ visible, selected, mode, languages: availableLanguages, onClose, onSelect }) {
   return <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
     <Pressable style={styles.modalScrim} onPress={onClose}><Pressable style={styles.languageSheet} onPress={(event) => event.stopPropagation()}>
       <View style={styles.sheetHandle} /><View style={styles.sheetHead}><View><Text style={styles.sheetEyebrow}>CÁ NHÂN HÓA TRẢI NGHIỆM</Text><Text style={styles.sheetTitle}>Chọn ngôn ngữ</Text><Text style={styles.sheetSub}>{mode === 'audio' ? 'Nội dung thuyết minh bạn muốn nghe' : 'Ngôn ngữ giao diện'}</Text></View><Pressable style={styles.sheetClose} onPress={onClose}><X size={18} color="#77716A" /></Pressable></View>
-      {languages.map((item) => (
+      {availableLanguages.map((item) => (
     <Pressable 
         key={item.id} 
         style={[

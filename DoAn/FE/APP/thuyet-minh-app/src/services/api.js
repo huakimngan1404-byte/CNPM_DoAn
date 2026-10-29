@@ -73,6 +73,24 @@ export const fetchSites = async () => {
     return adaptSiteRecords(records);
 };
 
+export const fetchActiveLanguages = async () => {
+    const response = await fetch(`${apiOrigin}/api/languages/`);
+    const records = await parseResponse(response);
+    if (!Array.isArray(records) || records.some((language) => (
+        typeof language?.code !== 'string'
+        || typeof language?.name !== 'string'
+        || typeof language?.flag !== 'string'
+    ))) {
+        throw new Error('Backend trả về danh sách ngôn ngữ không hợp lệ.');
+    }
+    return records.map((language) => ({
+        id: language.code,
+        name: language.name,
+        nativeName: language.name,
+        flag: language.flag,
+    }));
+};
+
 export const fetchNearbySites = async (lat, lng, lang = 'vi') => {
     const response = await fetch(`${apiBaseUrl}/sync-location`, {
         method: 'POST',

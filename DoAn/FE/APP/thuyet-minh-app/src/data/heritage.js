@@ -1,4 +1,4 @@
-// 1. Danh sách 5 ngôn ngữ (Việt, Anh, Nhật, Trung, Pháp)
+// Ngôn ngữ giao diện mặc định; danh sách ngôn ngữ audio được tải từ Backend.
 export const languages = [
     { id: 'vi', flag: '🇻🇳', name: 'Vietnamese', nativeName: 'Tiếng Việt' },
     { id: 'en', flag: '🇬🇧', name: 'English', nativeName: 'English' },

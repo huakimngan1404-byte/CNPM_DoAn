@@ -35,8 +35,6 @@ class SiteTranslationError(Exception):
 
 
 class SiteTranslationService:
-    supported_languages = {"vi", "en", "zh", "ja", "ko", "fr", "de"}
-
     def __init__(
         self,
         repository: AudioRepository,
@@ -50,8 +48,6 @@ class SiteTranslationService:
         self.translate_with_timeout = translate_with_timeout
 
     async def get_translation(self, site_code: str, lang: str):
-        if lang not in self.supported_languages:
-            raise SiteTranslationError(400, f"Unsupported language: {lang}")
         get_language = getattr(self.repository, "get_language", None)
         language = await get_language(lang) if inspect.iscoroutinefunction(get_language) else None
         if isinstance(language, dict) and (

@@ -4,13 +4,14 @@ import pika
 import json
 import time
 import calendar
+import re
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from data.site_repository import SiteRepository
 
 ACTIVE_VISITOR_TTL_SECONDS = 45
 HO_CHI_MINH_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
-SUPPORTED_LANGUAGE_CODES = {"vi", "en", "zh", "ja", "ko", "fr", "de"}
+LANGUAGE_CODE_PATTERN = re.compile(r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 
 
 class SiteService:
@@ -36,8 +37,8 @@ class SiteService:
 
     async def add_language(self, code: str, name: str, flag: str):
         await self.ensure_language_catalog_seeded()
-        if code not in SUPPORTED_LANGUAGE_CODES:
-            raise ValueError("Mã ngôn ngữ này chưa được dịch vụ hỗ trợ.")
+        if not LANGUAGE_CODE_PATTERN.fullmatch(code):
+            raise ValueError("Mã ngôn ngữ không hợp lệ.")
         if not name.strip() or not flag.strip():
             raise ValueError("Tên và biểu tượng ngôn ngữ không được để trống.")
         existing = await self.repo.get_language(code)
@@ -52,8 +53,6 @@ class SiteService:
 
     async def update_language(self, code: str, name: str, flag: str, is_active: bool):
         await self.ensure_language_catalog_seeded()
-        if code not in SUPPORTED_LANGUAGE_CODES:
-            raise LookupError("Không tìm thấy ngôn ngữ.")
         if not name.strip() or not flag.strip():
             raise ValueError("Tên và biểu tượng ngôn ngữ không được để trống.")
         if code == "vi" and not is_active:
@@ -70,8 +69,6 @@ class SiteService:
         await self.ensure_language_catalog_seeded()
         if code == "vi":
             raise ValueError("Không thể xóa Tiếng Việt vì đây là ngôn ngữ nội dung gốc.")
-        if code not in SUPPORTED_LANGUAGE_CODES:
-            raise LookupError("Không tìm thấy ngôn ngữ.")
         result = await self.repo.delete_language(code)
         if not result.matched_count:
             raise LookupError("Không tìm thấy ngôn ngữ.")
@@ -88,8 +85,8 @@ class SiteService:
         require_existing: bool = False,
     ):
         await self.ensure_language_catalog_seeded()
-        if lang not in SUPPORTED_LANGUAGE_CODES:
-            raise ValueError("Mã ngôn ngữ này chưa được dịch vụ hỗ trợ.")
+        if not LANGUAGE_CODE_PATTERN.fullmatch(lang):
+            raise ValueError("Mã ngôn ngữ không hợp lệ.")
         site = await self.repo.get_site_by_code(site_code)
         if not site:
             raise LookupError("Không tìm thấy di tích.")

@@ -94,6 +94,30 @@ DEFAULT_LANGUAGES = (
     {"code": "ko", "name": "한국어", "flag": "🇰🇷", "is_active": True},
     {"code": "fr", "name": "Français", "flag": "🇫🇷", "is_active": True},
     {"code": "de", "name": "Deutsch", "flag": "🇩🇪", "is_active": True},
+    {"code": "es", "name": "Español", "flag": "🇪🇸", "is_active": True},
+    {"code": "it", "name": "Italiano", "flag": "🇮🇹", "is_active": True},
+    {"code": "pt", "name": "Português", "flag": "🇵🇹", "is_active": True},
+    {"code": "pt-br", "name": "Português (Brasil)", "flag": "🇧🇷", "is_active": True},
+    {"code": "ru", "name": "Русский", "flag": "🇷🇺", "is_active": True},
+    {"code": "th", "name": "ไทย", "flag": "🇹🇭", "is_active": True},
+    {"code": "ar", "name": "العربية", "flag": "🇸🇦", "is_active": True},
+    {"code": "hi", "name": "हिन्दी", "flag": "🇮🇳", "is_active": True},
+    {"code": "id", "name": "Bahasa Indonesia", "flag": "🇮🇩", "is_active": True},
+    {"code": "ms", "name": "Bahasa Melayu", "flag": "🇲🇾", "is_active": True},
+    {"code": "nl", "name": "Nederlands", "flag": "🇳🇱", "is_active": True},
+    {"code": "tr", "name": "Türkçe", "flag": "🇹🇷", "is_active": True},
+    {"code": "pl", "name": "Polski", "flag": "🇵🇱", "is_active": True},
+    {"code": "sv", "name": "Svenska", "flag": "🇸🇪", "is_active": True},
+    {"code": "da", "name": "Dansk", "flag": "🇩🇰", "is_active": True},
+    {"code": "no", "name": "Norsk", "flag": "🇳🇴", "is_active": True},
+    {"code": "fi", "name": "Suomi", "flag": "🇫🇮", "is_active": True},
+    {"code": "el", "name": "Ελληνικά", "flag": "🇬🇷", "is_active": True},
+    {"code": "cs", "name": "Čeština", "flag": "🇨🇿", "is_active": True},
+    {"code": "hu", "name": "Magyar", "flag": "🇭🇺", "is_active": True},
+    {"code": "ro", "name": "Română", "flag": "🇷🇴", "is_active": True},
+    {"code": "uk", "name": "Українська", "flag": "🇺🇦", "is_active": True},
+    {"code": "he", "name": "עברית", "flag": "🇮🇱", "is_active": True},
+    {"code": "tl", "name": "Filipino", "flag": "🇵🇭", "is_active": True},
 )
 
 
@@ -181,19 +205,22 @@ class SiteRepository:
         description: str,
         updated_at: datetime,
     ):
+        existing = await db.translations.find_one(
+            {"site_code": site_code, "lang": lang},
+            {"_id": 0, "description": 1},
+        )
+        updates = {
+            "site_code": site_code,
+            "lang": lang,
+            "source_text": source_text,
+            "description": description,
+            "updated_at": updated_at,
+        }
+        if not existing or existing.get("description") != description:
+            updates.update({"audio_asset_id": None, "audio_url": None})
         await db.translations.update_one(
             {"site_code": site_code, "lang": lang},
-            {
-                "$set": {
-                    "site_code": site_code,
-                    "lang": lang,
-                    "source_text": source_text,
-                    "description": description,
-                    "audio_asset_id": None,
-                    "audio_url": None,
-                    "updated_at": updated_at,
-                }
-            },
+            {"$set": updates},
             upsert=True,
         )
 

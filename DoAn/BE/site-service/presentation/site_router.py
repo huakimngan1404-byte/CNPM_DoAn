@@ -55,7 +55,7 @@ class SiteAdminUpdate(BaseModel):
     is_active: bool = True
 
 class LanguageAdminForm(BaseModel):
-    code: str = Field(min_length=2, max_length=5, pattern=r"^[a-z]{2}(?:-[a-z]{2})?$")
+    code: str = Field(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
     name: str = Field(min_length=1, max_length=100)
     flag: str = Field(min_length=1, max_length=16)
 
@@ -66,7 +66,7 @@ class LanguageAdminUpdate(BaseModel):
 
 class NarrationAdminCreate(BaseModel):
     site_code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    lang: str = Field(min_length=2, max_length=5, pattern=r"^[a-z]{2}(?:-[a-z]{2})?$")
+    lang: str = Field(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
     description: str = Field(min_length=10, max_length=20000)
 
 class NarrationAdminUpdate(BaseModel):

@@ -66,6 +66,19 @@ const sectionTitles = {
 };
 
 const supportedLanguages = initialLanguages;
+const languageCodeSuggestions = [
+  { code: 'es', name: 'Español' },
+  { code: 'it', name: 'Italiano' },
+  { code: 'pt', name: 'Português' },
+  { code: 'ru', name: 'Русский' },
+  { code: 'th', name: 'ไทย' },
+  { code: 'ar', name: 'العربية' },
+  { code: 'hi', name: 'हिन्दी' },
+  { code: 'id', name: 'Bahasa Indonesia' },
+  { code: 'ms', name: 'Bahasa Melayu' },
+  { code: 'nl', name: 'Nederlands' },
+  { code: 'tr', name: 'Türkçe' },
+];
 
 const adminAuthRequired = true;
 const adminTokenStorageKey = 'ditichq1-admin-token';
@@ -962,6 +975,14 @@ function NarrationsPage({ notify, languages }) {
     } else {
       await createNarration(formData);
     }
+    try {
+      const generatedNarration = await fetchSiteNarration(formData.site_code, formData.lang);
+      if (typeof generatedNarration.audio_url !== 'string' || !generatedNarration.audio_url) {
+        throw new Error('Backend chưa trả về file audio.');
+      }
+    } catch (error) {
+      throw new Error(`Đã lưu nội dung nhưng chưa tạo được audio: ${error.message}`);
+    }
     setIsModalOpen(false);
     setActionError('');
     notify(editingNarration ? 'Đã cập nhật bài thuyết minh.' : 'Đã thêm bài thuyết minh.');
@@ -1115,6 +1136,7 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
   ));
   const selectedSite = sites.find((site) => site.code === siteCode);
   const selectedLanguage = formLanguages.find((language) => language.code === lang);
+  const canGenerateTranslation = lang !== 'vi';
 
   useEffect(() => {
     if (!narration && availableLanguages.length && !availableLanguages.some((language) => language.code === lang)) {
@@ -1164,18 +1186,20 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
     <div className="modal-body">
       <label>Di tích <em>*</em><select value={siteCode} disabled={Boolean(narration) || saving || generating} onChange={(event) => setSiteCode(event.target.value)}>{sites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}</select></label>
       <label>Ngôn ngữ <em>*</em><select value={lang} disabled={Boolean(narration) || saving || generating} onChange={(event) => setLang(event.target.value)}>{availableLanguages.map((language) => <option key={language.code} value={language.code}>{language.name} · {language.code.toUpperCase()}</option>)}</select></label>
-      {!narration && <p className="narration-generate-note">Khi tạo nội dung tự động, bản dịch sẽ được lưu vào Backend ngay lập tức.</p>}
+      {!narration && <p className="narration-generate-note">{canGenerateTranslation
+        ? 'Có thể tự nhập nội dung hoặc tạo bản dịch từ mô tả tiếng Việt của di tích. Nội dung và audio sẽ được lưu vào Backend.'
+        : 'Tiếng Việt là nội dung gốc: vui lòng tự viết hoặc nhập nội dung tiếng Việt tại đây.'}</p>}
       <label>Nội dung thuyết minh <em>*</em>
-        <textarea rows="9" value={description} onChange={(event) => { setDescription(event.target.value); setError(''); }} maxLength={20000} placeholder="Nhập nội dung hoặc tạo bản dịch tự động..." />
+        <textarea rows="9" value={description} onChange={(event) => { setDescription(event.target.value); setError(''); }} maxLength={20000} placeholder={canGenerateTranslation ? 'Nhập nội dung hoặc tạo bản dịch tự động từ tiếng Việt...' : 'Tự nhập nội dung thuyết minh bằng tiếng Việt...'} />
         <small className="field-hint">{description.length.toLocaleString('vi-VN')} / 20.000 ký tự</small>
       </label>
       {error && <div className="form-error" role="alert">{error}</div>}
     </div>
     <div className="modal-foot narration-modal-foot">
-      <button type="button" className="button button-secondary" onClick={generateTranslation} disabled={saving || generating || !selectedSite || !selectedLanguage}>{generating ? 'Đang tạo nội dung…' : 'Tạo nội dung tự động'}</button>
+      {canGenerateTranslation && <button type="button" className="button button-secondary" onClick={generateTranslation} disabled={saving || generating || !selectedSite || !selectedLanguage}>{generating ? 'Đang dịch và tạo audio…' : 'Tạo nội dung tự động'}</button>}
       <span className="modal-foot-spacer" />
       <button type="button" className="button button-secondary" onClick={onClose} disabled={saving || generating}>Hủy</button>
-      <button className="button button-primary" type="submit" disabled={saving || generating || !siteCode || !lang}>{saving ? 'Đang lưu…' : narration ? 'Lưu thay đổi' : 'Thêm bài'} {!saving && <ArrowRight size={15} />}</button>
+      <button className="button button-primary" type="submit" disabled={saving || generating || !siteCode || !lang}>{saving ? 'Đang lưu và tạo audio…' : narration ? 'Lưu thay đổi' : 'Thêm bài'} {!saving && <ArrowRight size={15} />}</button>
     </div>
   </form></div>;
 }
@@ -1247,7 +1271,7 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
     <section className="panel language-panel">
       <div className="panel-heading language-manager-heading">
         <div><h3>Danh sách ngôn ngữ</h3><p>Quản lý các ngôn ngữ được hỗ trợ bởi Backend</p></div>
-        <button className="button button-primary" onClick={() => { setEditingLanguage(null); setIsModalOpen(true); }} disabled={!addableLanguages.length}>
+        <button className="button button-primary" onClick={() => { setEditingLanguage(null); setIsModalOpen(true); }}>
           <Plus size={16} /> Thêm ngôn ngữ
         </button>
       </div>
@@ -1292,6 +1316,10 @@ function LanguageModal({ language, availableLanguages, onClose, onSave }) {
       setError('Nhập đầy đủ tên, biểu tượng và mã ngôn ngữ.');
       return;
     }
+    if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/.test(code)) {
+      setError('Mã ngôn ngữ không hợp lệ. Dùng mã ISO như es, it hoặc pt-br.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -1305,12 +1333,14 @@ function LanguageModal({ language, availableLanguages, onClose, onSave }) {
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}><form className="site-modal language-modal" onSubmit={submit}>
     <div className="modal-head"><div><span className="modal-icon"><Globe2 size={18} /></span><div><h2>{language ? 'Chỉnh sửa ngôn ngữ' : 'Thêm ngôn ngữ'}</h2><p>Thông tin được lưu vào Backend.</p></div></div><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose} disabled={saving}><X size={19} /></button></div>
     <div className="modal-body">
-      <label>Mã ngôn ngữ <em>*</em><select value={code} disabled={Boolean(language)} onChange={(event) => setCode(event.target.value)}>{language ? <option value={language.code}>{language.code.toUpperCase()}</option> : availableLanguages.map((available) => <option key={available.code} value={available.code}>{available.code.toUpperCase()} · {available.name}</option>)}</select></label>
-      <label>Tên hiển thị <em>*</em><input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={100} placeholder="Ví dụ: Tiếng Việt" /></label>
+      <label>Mã ngôn ngữ <em>*</em><input autoFocus={!language} list="language-code-suggestions" value={code} disabled={Boolean(language)} onChange={(event) => setCode(event.target.value.toLowerCase())} maxLength={35} placeholder="Ví dụ: es, it, pt-BR" /><datalist id="language-code-suggestions">
+        {[...availableLanguages, ...languageCodeSuggestions].map((available) => <option key={available.code} value={available.code}>{available.name}</option>)}
+      </datalist><small className="field-hint">Nhập mã ngôn ngữ ISO, ví dụ es (Tây Ban Nha), it (Ý), pt (Bồ Đào Nha).</small></label>
+      <label>Tên hiển thị <em>*</em><input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} placeholder="Ví dụ: Tiếng Việt" /></label>
       <label>Biểu tượng <em>*</em><input value={flag} onChange={(event) => setFlag(event.target.value)} maxLength={16} placeholder="Ví dụ: 🇻🇳" /></label>
       {error && <div className="form-error" role="alert">{error}</div>}
     </div>
-    <div className="modal-foot"><button type="button" className="button button-secondary" onClick={onClose} disabled={saving}>Hủy</button><button className="button button-primary" type="submit" disabled={saving || (!language && !availableLanguages.length)}>{saving ? 'Đang lưu…' : language ? 'Lưu thay đổi' : 'Thêm ngôn ngữ'} {!saving && <ArrowRight size={15} />}</button></div>
+    <div className="modal-foot"><button type="button" className="button button-secondary" onClick={onClose} disabled={saving}>Hủy</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Đang lưu…' : language ? 'Lưu thay đổi' : 'Thêm ngôn ngữ'} {!saving && <ArrowRight size={15} />}</button></div>
   </form></div>;
 }
 
