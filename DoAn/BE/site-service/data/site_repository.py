@@ -99,14 +99,82 @@ DEFAULT_LANGUAGES = (
 
 class SiteRepository:
     async def ensure_language_catalog(self):
-        if await db.languages.find_one({"_id": "vi"}, {"_id": 1}):
-            return
         for language in DEFAULT_LANGUAGES:
             await db.languages.update_one(
                 {"_id": language["code"]},
                 {"$setOnInsert": {**language, "_id": language["code"]}},
                 upsert=True,
             )
+
+    async def get_admin_narrations(self):
+        cursor = db.translations.find({}).sort("updated_at", -1)
+        translations = [record async for record in cursor]
+        site_codes = {record.get("site_code") for record in translations if record.get("site_code")}
+        language_codes = {record.get("lang") for record in translations if record.get("lang")}
+        sites = {}
+        languages = {}
+        if site_codes:
+            sites = {
+                site["code"]: site
+                async for site in db.sites.find(
+                    {"code": {"$in": list(site_codes)}},
+                    {"_id": 0, "code": 1, "name": 1},
+                )
+            }
+        if language_codes:
+            languages = {
+                language["_id"]: language
+                async for language in db.languages.find(
+                    {"_id": {"$in": list(language_codes)}},
+                    {"_id": 1, "name": 1, "flag": 1, "is_active": 1, "is_deleted": 1},
+                )
+            }
+        return [
+            {
+                "site_code": record.get("site_code", ""),
+                "site_name": sites.get(record.get("site_code"), {}).get("name", record.get("site_code", "")),
+                "lang": record.get("lang", ""),
+                "language_name": languages.get(record.get("lang"), {}).get("name", record.get("lang", "").upper()),
+                "language_flag": languages.get(record.get("lang"), {}).get("flag", ""),
+                "is_active": languages.get(record.get("lang"), {}).get("is_active", True)
+                and not languages.get(record.get("lang"), {}).get("is_deleted", False),
+                "description": record.get("description", ""),
+                "updated_at": record.get("updated_at").isoformat() if record.get("updated_at") else None,
+            }
+            for record in translations
+            if record.get("site_code") and record.get("lang")
+        ]
+
+    async def get_narration(self, site_code: str, lang: str):
+        return await db.translations.find_one({"site_code": site_code, "lang": lang})
+
+    async def save_narration(
+        self,
+        site_code: str,
+        lang: str,
+        source_text: str,
+        description: str,
+        updated_at: datetime,
+    ):
+        await db.translations.update_one(
+            {"site_code": site_code, "lang": lang},
+            {
+                "$set": {
+                    "site_code": site_code,
+                    "lang": lang,
+                    "source_text": source_text,
+                    "description": description,
+                    "audio_asset_id": None,
+                    "audio_url": None,
+                    "updated_at": updated_at,
+                }
+            },
+            upsert=True,
+        )
+
+    async def delete_narration(self, site_code: str, lang: str):
+        result = await db.translations.delete_one({"site_code": site_code, "lang": lang})
+        return result.deleted_count > 0
 
     async def get_languages(self, active_only: bool = False):
         filters = {"is_deleted": {"$ne": True}}

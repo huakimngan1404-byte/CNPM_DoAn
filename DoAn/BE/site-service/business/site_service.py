@@ -76,6 +76,46 @@ class SiteService:
         if not result.matched_count:
             raise LookupError("Không tìm thấy ngôn ngữ.")
 
+    async def get_admin_narrations(self):
+        await self.ensure_language_catalog_seeded()
+        return await self.repo.get_admin_narrations()
+
+    async def save_narration(
+        self,
+        site_code: str,
+        lang: str,
+        description: str,
+        require_existing: bool = False,
+    ):
+        await self.ensure_language_catalog_seeded()
+        if lang not in SUPPORTED_LANGUAGE_CODES:
+            raise ValueError("Mã ngôn ngữ này chưa được dịch vụ hỗ trợ.")
+        site = await self.repo.get_site_by_code(site_code)
+        if not site:
+            raise LookupError("Không tìm thấy di tích.")
+        language = await self.repo.get_language(lang)
+        if not language or language.get("is_deleted") is True:
+            raise ValueError("Ngôn ngữ này đang tắt hoặc không tồn tại.")
+        existing = await self.repo.get_narration(site_code, lang)
+        if require_existing and not existing:
+            raise LookupError("Không tìm thấy bài thuyết minh.")
+        if language.get("is_active") is False and not require_existing:
+            raise ValueError("Ngôn ngữ này đang tắt hoặc không tồn tại.")
+        source_text = site.get("description")
+        if not isinstance(source_text, str) or not source_text.strip():
+            raise ValueError("Di tích chưa có nội dung tiếng Việt để làm nguồn dịch.")
+        await self.repo.save_narration(
+            site_code,
+            lang,
+            source_text.strip(),
+            description.strip(),
+            datetime.now(timezone.utc),
+        )
+
+    async def delete_narration(self, site_code: str, lang: str):
+        if not await self.repo.delete_narration(site_code, lang):
+            raise LookupError("Không tìm thấy bài thuyết minh.")
+
     async def ensure_catalog_seeded(self):
         if not self.catalog_seeded:
             await self.repo.seed_default_sites()

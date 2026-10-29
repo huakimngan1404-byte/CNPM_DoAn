@@ -3,7 +3,7 @@ import {
   Activity, ArrowRight, ArrowUpRight, AudioLines, BookOpen,
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass,
   Filter, Globe2, Headphones, LayoutDashboard, Map,
-  LogOut, MapPin, Menu, MoreHorizontal, Pause, Pencil, Play, Plus, Search, Settings2,
+  LogOut, MapPin, Menu, MoreHorizontal, Pause, Pencil, Play, Plus, RefreshCw, Search, Settings2,
   ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
@@ -12,10 +12,13 @@ import SiteMap from './components/SiteMap.jsx';
 import {
   createSite,
   createLanguage,
+  createNarration,
   deleteSite,
   deleteLanguage,
+  deleteNarration,
   fetchActiveLanguages,
   fetchAdminLanguages,
+  fetchAdminNarrations,
   fetchAdminSites,
   fetchActiveVisitors,
   fetchListenStats,
@@ -28,6 +31,7 @@ import {
   recordNarrationListen,
   updateSite,
   updateLanguage,
+  updateNarration,
   updateAdminCredentials,
 } from './services/api.js';
 
@@ -823,6 +827,13 @@ function NarrationsPage({ notify, languages }) {
   const [selectedLang, setSelectedLang] = useState('Tất cả ngôn ngữ');
   const [search, setSearch] = useState('');
   const [sites, setSites] = useState([]);
+  const [narrations, setNarrations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [loadError, setLoadError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [editingNarration, setEditingNarration] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [loadingId, setLoadingId] = useState('');
   const [activeId, setActiveId] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -831,22 +842,40 @@ function NarrationsPage({ notify, languages }) {
   const audioRef = useRef(null);
   const requestId = useRef(0);
   const countedNarrationIdRef = useRef('');
+  const canAddNarration = sites.some((site) => (
+    languages.some((language) => !narrations.some(
+      (narration) => narration.site_code === site.code && narration.lang === language.code,
+    ))
+  ));
 
   useEffect(() => {
     let active = true;
-    fetchAdminSites()
-      .then((records) => {
-        if (active) setSites(records);
+    setLoading(true);
+    Promise.all([fetchAdminSites(), fetchAdminNarrations()])
+      .then(([siteRecords, narrationRecords]) => {
+        if (!active) return;
+        setSites(siteRecords);
+        setNarrations(narrationRecords);
+        setLoadError('');
       })
       .catch((error) => {
-        if (active) notify(`Không tải được danh sách di tích: ${error.message}`);
+        if (active) setLoadError(error.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
     return () => {
       active = false;
       requestId.current += 1;
       audioRef.current?.pause();
     };
-  }, []);
+  }, [reloadKey]);
+
+  const refreshNarrations = async () => {
+    const records = await fetchAdminNarrations();
+    setNarrations(records);
+    setLoadError('');
+  };
 
   useEffect(() => {
     if (!audioUrl) return undefined;
@@ -872,21 +901,69 @@ function NarrationsPage({ notify, languages }) {
     };
   }, [audioUrl]);
 
-  const narrationLanguages = selectedLang === 'Tất cả ngôn ngữ'
-    ? languages
-    : languages.filter((language) => language.name === selectedLang);
   useEffect(() => {
     if (selectedLang !== 'Tất cả ngôn ngữ' && !languages.some((language) => language.name === selectedLang)) {
       setSelectedLang('Tất cả ngôn ngữ');
     }
   }, [languages, selectedLang]);
-  const narrations = sites.flatMap((site) => narrationLanguages.map((language) => ({
-    id: `${site.code}-${language.code}`,
-    site,
-    language,
-  }))).filter(({ site }) => (
-    `${site.name} ${site.category} ${site.address}`.toLowerCase().includes(search.trim().toLowerCase())
-  ));
+  const visibleNarrations = narrations
+    .filter((narration) => selectedLang === 'Tất cả ngôn ngữ' || narration.language_name === selectedLang)
+    .filter((narration) => (
+      `${narration.site_name} ${narration.language_name} ${narration.description}`
+        .toLowerCase()
+        .includes(search.trim().toLowerCase())
+    ))
+    .map((narration) => ({
+      ...narration,
+      id: `${narration.site_code}-${narration.lang}`,
+      language: languages.find((language) => language.code === narration.lang) || {
+        code: narration.lang,
+        name: narration.language_name,
+        flag: narration.language_flag,
+      },
+    }));
+
+  const saveNarration = async (formData) => {
+    if (editingNarration) {
+      await updateNarration(
+        editingNarration.site_code,
+        editingNarration.lang,
+        formData.description,
+      );
+    } else {
+      await createNarration(formData);
+    }
+    setIsModalOpen(false);
+    setActionError('');
+    notify(editingNarration ? 'Đã cập nhật bài thuyết minh.' : 'Đã thêm bài thuyết minh.');
+    try {
+      await refreshNarrations();
+    } catch (error) {
+      setActionError(`Đã lưu nhưng không thể tải lại danh sách: ${error.message}`);
+    }
+  };
+
+  const removeNarration = async (narration) => {
+    if (!window.confirm(`Xóa bài thuyết minh ${narration.site_name} · ${narration.language_name}?`)) return;
+    try {
+      await deleteNarration(narration.site_code, narration.lang);
+      if (activeId === `${narration.site_code}-${narration.lang}`) {
+        audioRef.current?.pause();
+        setAudioUrl('');
+        setActiveId('');
+      }
+      setActionError('');
+      notify('Đã xóa bài thuyết minh.');
+      try {
+        await refreshNarrations();
+      } catch (error) {
+        setActionError(`Đã xóa nhưng không thể tải lại danh sách: ${error.message}`);
+      }
+    } catch (error) {
+      setActionError(`Không thể xóa bài thuyết minh: ${error.message}`);
+    }
+  };
+
   const playNarration = async (item) => {
     const id = item.id;
     const player = audioRef.current;
@@ -919,11 +996,11 @@ function NarrationsPage({ notify, languages }) {
     player.load();
 
     try {
-      if (!item.site.code) {
-        throw new Error(`Không tìm thấy mã di tích "${item.site.name}" trong Backend.`);
+      if (!item.site_code) {
+        throw new Error(`Không tìm thấy mã di tích "${item.site_name}" trong Backend.`);
       }
       const narration = await fetchSiteNarration(
-        item.site.code,
+        item.site_code,
         item.language.code,
       );
       if (currentRequest !== requestId.current) return;
@@ -945,24 +1022,131 @@ function NarrationsPage({ notify, languages }) {
     }
   };
 
-  return <section className="panel content-list-panel"><div className="content-toolbar"><div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên di tích, địa chỉ..." /></div><label className="filter-select"><Globe2 size={15} /><select value={selectedLang} onChange={(event) => setSelectedLang(event.target.value)}><option>Tất cả ngôn ngữ</option>{languages.map((language) => <option key={language.code}>{language.name}</option>)}</select><ChevronDown size={14} /></label><span className="narration-total">{narrations.length} bài thuyết minh</span></div>
-    <div className="narration-list">{narrations.map((item, index) => {
-      const isActive = activeId === item.id;
-      return <div className="narration-row" key={item.id}><div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div><div className="narration-title"><strong>{item.site.name}</strong><span>{item.site.category} <i /> {item.language.name}</span></div><button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site.name}` : isActive && isPlaying ? `Tạm dừng ${item.site.name}` : `Nghe ${item.site.name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id || sites.length === 0} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button><button className="row-more" aria-label="Tùy chọn"><MoreHorizontal size={18} /></button></div>;
-    })}{narrations.length === 0 && <div className="empty-state"><Search size={23} /><strong>Không tìm thấy bài thuyết minh</strong><span>Thay đổi từ khóa hoặc bộ lọc để xem các di tích hiện có.</span></div>}</div>
-    <div className="narration-audio-player" hidden={!audioUrl}><strong>{narrations.find((item) => item.id === activeId)?.site.name}</strong><audio ref={audioRef} controls={Boolean(audioUrl)} preload="none" src={audioUrl || undefined} onPlay={() => {
+  return <>
+    <section className="panel content-list-panel">
+      <div className="content-toolbar narration-toolbar">
+        <div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm di tích, ngôn ngữ hoặc nội dung..." /></div>
+        <label className="filter-select"><Globe2 size={15} /><select value={selectedLang} onChange={(event) => setSelectedLang(event.target.value)}><option>Tất cả ngôn ngữ</option>{languages.map((language) => <option key={language.code}>{language.name}</option>)}</select><ChevronDown size={14} /></label>
+        <span className="narration-total">{visibleNarrations.length} / {narrations.length} bài</span>
+        <button className="icon-button narration-refresh" aria-label="Tải lại danh sách" title="Tải lại danh sách" disabled={loading} onClick={() => setReloadKey((key) => key + 1)}><RefreshCw size={15} /></button>
+        <button className="button button-primary narration-add-button" disabled={!canAddNarration} onClick={() => { setEditingNarration(null); setIsModalOpen(true); }}><Plus size={15} /> Thêm bài</button>
+      </div>
+      {loadError && <div className="language-error" role="alert">Không tải được danh sách bài thuyết minh: {loadError}</div>}
+      {actionError && <div className="language-error" role="alert">{actionError}</div>}
+      <div className="narration-list">{loading ? <div className="narration-page-state">Đang tải bài thuyết minh…</div> : visibleNarrations.map((item, index) => {
+        const isActive = activeId === item.id;
+        return <div className="narration-row" key={item.id}>
+          <div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div>
+          <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()} {!item.is_active && <em>Ngôn ngữ đã tắt</em>}</span><small>{item.description}</small></div>
+          <button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site_name}` : isActive && isPlaying ? `Tạm dừng ${item.site_name}` : `Nghe ${item.site_name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button>
+          <button className="row-more" aria-label={`Sửa ${item.site_name}`} title="Sửa bài thuyết minh" onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={14} /><span>Sửa</span></button>
+          <button className="row-more delete-action" aria-label={`Xóa ${item.site_name}`} title="Xóa bài thuyết minh" onClick={() => removeNarration(item)}><Trash2 size={14} /><span>Xóa</span></button>
+        </div>;
+      })}{!loading && visibleNarrations.length === 0 && <div className="empty-state"><Search size={23} /><strong>{narrations.length ? 'Không tìm thấy bài thuyết minh' : 'Chưa có bài thuyết minh'}</strong><span>{narrations.length ? 'Thay đổi từ khóa hoặc bộ lọc để xem các bài hiện có.' : 'Thêm bài mới hoặc tạo bản dịch từ nội dung tiếng Việt.'}</span></div>}</div>
+      <div className="narration-audio-player" hidden={!audioUrl}><strong>{visibleNarrations.find((item) => item.id === activeId)?.site_name}</strong><audio ref={audioRef} controls={Boolean(audioUrl)} preload="none" src={audioUrl || undefined} onPlay={() => {
       setIsPlaying(true);
       if (countedNarrationIdRef.current === activeId) return;
       countedNarrationIdRef.current = activeId;
-      const item = narrations.find((narration) => narration.id === activeId);
+      const item = visibleNarrations.find((narration) => narration.id === activeId);
       if (item) {
-        recordNarrationListen(item.site.code, item.language.code, 'web').catch((error) => {
+        recordNarrationListen(item.site_code, item.language.code, 'web').catch((error) => {
           console.error('Không thể ghi nhận lượt nghe:', error);
         });
       }
     }} onPause={() => setIsPlaying(false)} onEnded={() => { setActiveId(''); setIsPlaying(false); countedNarrationIdRef.current = ''; }} onError={() => { if (audioUrl) setAudioError('Không tải được file audio từ Backend.'); }} /></div>
-    {audioError && <p className="listener-audio-warning">{audioError}</p>}
-  </section>;
+      {audioError && <p className="listener-audio-warning">{audioError}</p>}
+    </section>
+    {isModalOpen && <NarrationModal
+      narration={editingNarration}
+      sites={sites}
+      languages={languages}
+      narrations={narrations}
+      onClose={() => setIsModalOpen(false)}
+      onSave={saveNarration}
+    />}
+  </>;
+}
+
+function NarrationModal({ narration, sites, languages, narrations, onClose, onSave }) {
+  const [siteCode, setSiteCode] = useState(narration?.site_code ?? sites[0]?.code ?? '');
+  const [lang, setLang] = useState(narration?.lang ?? languages[0]?.code ?? '');
+  const [description, setDescription] = useState(narration?.description ?? '');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const narrationLanguage = narration && !languages.some((language) => language.code === narration.lang)
+    ? { code: narration.lang, name: narration.language_name, flag: narration.language_flag }
+    : null;
+  const formLanguages = narrationLanguage ? [...languages, narrationLanguage] : languages;
+  const availableLanguages = formLanguages.filter((language) => (
+    narration
+    || !narrations.some((item) => item.site_code === siteCode && item.lang === language.code)
+  ));
+  const selectedSite = sites.find((site) => site.code === siteCode);
+  const selectedLanguage = formLanguages.find((language) => language.code === lang);
+
+  useEffect(() => {
+    if (!narration && availableLanguages.length && !availableLanguages.some((language) => language.code === lang)) {
+      setLang(availableLanguages[0].code);
+    }
+  }, [availableLanguages, lang, narration]);
+
+  const generateTranslation = async () => {
+    if (!siteCode || !lang) return;
+    setGenerating(true);
+    setError('');
+    try {
+      const result = await fetchSiteNarration(siteCode, lang);
+      if (typeof result.description !== 'string' || !result.description.trim()) {
+        throw new Error('Dịch vụ dịch không trả về nội dung bài thuyết minh.');
+      }
+      setDescription(result.description);
+    } catch (generateError) {
+      setError(`Không thể tạo nội dung: ${generateError.message}`);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (description.trim().length < 10) {
+      setError('Nội dung bài thuyết minh cần có ít nhất 10 ký tự.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      await onSave({
+        site_code: siteCode,
+        lang,
+        description: description.trim(),
+      });
+    } catch (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+    }
+  };
+
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving && !generating) onClose(); }}><form className="site-modal narration-modal" onSubmit={submit}>
+    <div className="modal-head"><div><span className="modal-icon"><BookOpen size={18} /></span><div><h2>{narration ? 'Chỉnh sửa bài thuyết minh' : 'Thêm bài thuyết minh'}</h2><p>Nội dung được lưu vào Backend và dùng cho thuyết minh/audio.</p></div></div><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose} disabled={saving || generating}><X size={19} /></button></div>
+    <div className="modal-body">
+      <label>Di tích <em>*</em><select value={siteCode} disabled={Boolean(narration) || saving || generating} onChange={(event) => setSiteCode(event.target.value)}>{sites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}</select></label>
+      <label>Ngôn ngữ <em>*</em><select value={lang} disabled={Boolean(narration) || saving || generating} onChange={(event) => setLang(event.target.value)}>{availableLanguages.map((language) => <option key={language.code} value={language.code}>{language.name} · {language.code.toUpperCase()}</option>)}</select></label>
+      {!narration && <p className="narration-generate-note">Khi tạo nội dung tự động, bản dịch sẽ được lưu vào Backend ngay lập tức.</p>}
+      <label>Nội dung thuyết minh <em>*</em>
+        <textarea rows="9" value={description} onChange={(event) => { setDescription(event.target.value); setError(''); }} maxLength={20000} placeholder="Nhập nội dung hoặc tạo bản dịch tự động..." />
+        <small className="field-hint">{description.length.toLocaleString('vi-VN')} / 20.000 ký tự</small>
+      </label>
+      {error && <div className="form-error" role="alert">{error}</div>}
+    </div>
+    <div className="modal-foot narration-modal-foot">
+      <button type="button" className="button button-secondary" onClick={generateTranslation} disabled={saving || generating || !selectedSite || !selectedLanguage}>{generating ? 'Đang tạo nội dung…' : 'Tạo nội dung tự động'}</button>
+      <span className="modal-foot-spacer" />
+      <button type="button" className="button button-secondary" onClick={onClose} disabled={saving || generating}>Hủy</button>
+      <button className="button button-primary" type="submit" disabled={saving || generating || !siteCode || !lang}>{saving ? 'Đang lưu…' : narration ? 'Lưu thay đổi' : 'Thêm bài'} {!saving && <ArrowRight size={15} />}</button>
+    </div>
+  </form></div>;
 }
 
 function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {

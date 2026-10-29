@@ -1,6 +1,9 @@
+import os
 from uuid import UUID
 from typing import Literal
+from urllib.parse import quote
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from business.site_service import SiteService
@@ -10,7 +13,12 @@ router = APIRouter(prefix="/api/sites")
 visitor_router = APIRouter(prefix="/api/visitors")
 listen_router = APIRouter(prefix="/api/listens")
 language_router = APIRouter(prefix="/api/languages")
+narration_router = APIRouter(prefix="/api/narrations")
 service = SiteService()
+translation_service_url = os.getenv(
+    "TRANSLATION_SERVICE_URL",
+    "http://localhost:8001",
+).rstrip("/")
 
 # --- MODEL REQUEST ---
 class GPSData(BaseModel):
@@ -56,6 +64,14 @@ class LanguageAdminUpdate(BaseModel):
     flag: str = Field(min_length=1, max_length=16)
     is_active: bool
 
+class NarrationAdminCreate(BaseModel):
+    site_code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    lang: str = Field(min_length=2, max_length=5, pattern=r"^[a-z]{2}(?:-[a-z]{2})?$")
+    description: str = Field(min_length=10, max_length=20000)
+
+class NarrationAdminUpdate(BaseModel):
+    description: str = Field(min_length=10, max_length=20000)
+
 # --- CONTROLLERS ---
 
 @language_router.get("/")
@@ -90,6 +106,42 @@ async def delete_language(code: str):
         await service.delete_language(code)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+@narration_router.get("/admin", dependencies=[Depends(require_admin)])
+async def get_admin_narrations():
+    return await service.get_admin_narrations()
+
+@narration_router.post("/", status_code=201, dependencies=[Depends(require_admin)])
+async def create_narration(data: NarrationAdminCreate):
+    try:
+        await service.save_narration(data.site_code, data.lang, data.description.strip())
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": "success"}
+
+@narration_router.put("/{site_code}/{lang}", dependencies=[Depends(require_admin)])
+async def update_narration(site_code: str, lang: str, data: NarrationAdminUpdate):
+    try:
+        await service.save_narration(
+            site_code,
+            lang,
+            data.description.strip(),
+            require_existing=True,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": "success"}
+
+@narration_router.delete("/{site_code}/{lang}", status_code=204, dependencies=[Depends(require_admin)])
+async def delete_narration(site_code: str, lang: str):
+    try:
+        await service.delete_narration(site_code, lang)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -155,6 +207,34 @@ def to_site_document(data: SiteAdminForm | SiteAdminUpdate, code: str):
 async def get_admin_sites():
     sites = await service.get_admin_sites()
     return [{**site, "_id": str(site["_id"])} for site in sites]
+
+@router.get("/{code}/narration")
+async def get_site_narration(code: str, lang: str = "vi"):
+    try:
+        async with httpx.AsyncClient(timeout=45) as client:
+            response = await client.get(
+                f"{translation_service_url}/api/audio/{quote(code, safe='')}",
+                params={"lang": lang},
+            )
+    except httpx.RequestError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Không kết nối được dịch vụ dịch và tạo audio.",
+        ) from error
+    try:
+        result = response.json()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="Dịch vụ dịch trả về dữ liệu không hợp lệ.",
+        ) from error
+    if not response.is_success:
+        detail = result.get("detail") if isinstance(result, dict) else None
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=detail or "Dịch vụ dịch không thể tạo bài thuyết minh.",
+        )
+    return result
 
 @router.post("/", dependencies=[Depends(require_admin)])
 async def create_site(data: SiteAdminForm):

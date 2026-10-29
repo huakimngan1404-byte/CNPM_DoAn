@@ -221,6 +221,47 @@ export async function deleteLanguage(code) {
   }, true);
 }
 
+export async function fetchAdminNarrations() {
+  const records = await requestSite('/api/narrations/admin', {}, true);
+  if (!Array.isArray(records) || records.some((narration) => (
+    typeof narration?.site_code !== 'string'
+    || typeof narration?.site_name !== 'string'
+    || typeof narration?.lang !== 'string'
+    || typeof narration?.language_name !== 'string'
+    || typeof narration?.description !== 'string'
+    || typeof narration?.is_active !== 'boolean'
+  ))) {
+    throw new Error('Backend trả về danh sách bài thuyết minh không hợp lệ.');
+  }
+  return records;
+}
+
+export async function createNarration(narration) {
+  return requestSite('/api/narrations/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      site_code: narration.site_code,
+      lang: narration.lang,
+      description: narration.description.trim(),
+    }),
+  }, true);
+}
+
+export async function updateNarration(siteCode, lang, description) {
+  return requestSite(`/api/narrations/${encodeURIComponent(siteCode)}/${encodeURIComponent(lang)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description: description.trim() }),
+  }, true);
+}
+
+export async function deleteNarration(siteCode, lang) {
+  return requestSite(`/api/narrations/${encodeURIComponent(siteCode)}/${encodeURIComponent(lang)}`, {
+    method: 'DELETE',
+  }, true);
+}
+
 export async function fetchRecentActivity() {
   const records = await requestSite('/api/sites/activity', {}, true);
   if (!Array.isArray(records)) {
@@ -295,11 +336,7 @@ export async function deleteSite(code) {
 }
 
 export async function fetchSiteNarration(siteCode, lang = 'vi') {
-  const response = await fetch(
-    `${apiBaseUrl}/api/sites/${encodeURIComponent(siteCode)}/narration?lang=${encodeURIComponent(lang)}`,
+  return requestSite(
+    `/api/sites/${encodeURIComponent(siteCode)}/narration?lang=${encodeURIComponent(lang)}`,
   );
-  if (!response.ok) {
-    throw new Error(`Không tải được bài thuyết minh (${response.status}).`);
-  }
-  return response.json();
 }

@@ -12,6 +12,8 @@ services:
         sync: false
       - key: MONGO_DATABASE
         value: district1_historical_db
+      - key: TRANSLATION_SERVICE_URL
+        value: https://quan1-translation-service-d3xw.onrender.com
 
   - type: web
     name: quan1-translation-service
