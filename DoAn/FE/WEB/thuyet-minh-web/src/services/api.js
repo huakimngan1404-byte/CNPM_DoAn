@@ -159,8 +159,11 @@ export async function fetchAdminSites() {
     lat: record.lat ?? record.location?.coordinates?.[1] ?? '',
     lng: record.lng ?? record.location?.coordinates?.[0] ?? '',
     isActive: record.is_active !== false,
-    languages: ['VI', 'EN', 'JA', 'ZH'],
-    narrations: 4,
+    languages: Array.isArray(record.languages)
+      ? record.languages
+        .filter((language) => typeof language === 'string')
+        .map((language) => language.toUpperCase())
+      : [],
     status: record.is_active === false ? 'Bản nháp' : 'Đang hoạt động',
     color: colors[index % colors.length],
     image: record.image_url || '',

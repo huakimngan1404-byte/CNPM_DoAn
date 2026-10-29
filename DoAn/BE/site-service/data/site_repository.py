@@ -156,7 +156,26 @@ class SiteRepository:
 
     async def get_admin_sites(self):
         cursor = db.sites.find({}).sort("name", 1)
-        return [doc async for doc in cursor]
+        sites = [doc async for doc in cursor]
+        site_codes = [site["code"] for site in sites if site.get("code")]
+        languages_by_site = {}
+        if site_codes:
+            translations = db.translations.find(
+                {"site_code": {"$in": site_codes}},
+                {"_id": 0, "site_code": 1, "lang": 1},
+            )
+            async for translation in translations:
+                site_code = translation.get("site_code")
+                language = translation.get("lang")
+                if isinstance(site_code, str) and isinstance(language, str) and language:
+                    languages_by_site.setdefault(site_code, set()).add(language)
+
+        for site in sites:
+            site["languages"] = sorted(
+                languages_by_site.get(site.get("code"), set()),
+                key=lambda language: (language != "vi", language),
+            )
+        return sites
 
     async def get_site_by_code(self, code: str):
         return await db.sites.find_one({"code": code})

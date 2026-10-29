@@ -730,6 +730,7 @@ function PlaceThumb({ site }) {
 }
 
 function LanguagePills({ codes }) {
+  if (!codes.length) return <span className="language-pills-empty">Chưa có</span>;
   return <div className="language-pills">{codes.map((code) => <span key={code} title={code}>{code}</span>)}</div>;
 }
 
@@ -767,13 +768,12 @@ function PlacesPage({ sites, totalSites, allSites, search, setSearch, statusFilt
         <button className="button button-secondary small-button" onClick={() => setStatusFilter('Tất cả trạng thái')}><Filter size={15} /> Bộ lọc</button>
       </div>
       <div className="places-table-wrap">
-        <table className="places-table"><thead><tr><th><input type="checkbox" aria-label="Chọn tất cả" /></th><th>TÊN DI TÍCH</th><th>VỊ TRÍ</th><th>NGÔN NGỮ</th><th>BÀI THUYẾT MINH</th><th>TRẠNG THÁI</th><th /></tr></thead>
+        <table className="places-table"><thead><tr><th><input type="checkbox" aria-label="Chọn tất cả" /></th><th>TÊN DI TÍCH</th><th>VỊ TRÍ</th><th>NGÔN NGỮ</th><th>TRẠNG THÁI</th><th /></tr></thead>
           <tbody>{sites.map((site) => <tr key={site.id}>
             <td><input type="checkbox" aria-label={`Chọn ${site.name}`} /></td>
             <td><div className="place-cell"><PlaceThumb site={site} /><div><strong>{site.name}</strong><small>{site.category}</small></div></div></td>
             <td className="address-cell"><MapPin size={13} />{site.address}</td>
             <td><LanguagePills codes={site.languages} /></td>
-            <td className="narration-count"><AudioLines size={15} /> {site.narrations} bài</td>
             <td><StatusBadge status={site.status} /></td>
             <td><div className="site-row-actions">
               <button className="row-more" aria-label={`Sửa ${site.name}`} title="Sửa di tích" onClick={() => onEdit(site)}><Pencil size={14} /><span>Sửa</span></button>
