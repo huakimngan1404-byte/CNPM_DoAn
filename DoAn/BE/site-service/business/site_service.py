@@ -294,9 +294,15 @@ class SiteService:
             raise LookupError("Không tìm thấy di tích.")
         if not data.get("name") or not data.get("location"):
             raise ValueError("Cần có tên và vị trí di tích.")
-        data["geofence_radius"] = 100.0
+        data["geofence_radius"] = existing.get("geofence_radius", 100.0)
         await self.repo.update_site(code, data)
         return {"status": "success"}
+
+    async def update_geofence_radius(self, code: str, radius: float):
+        if not await self.repo.get_site_by_code(code):
+            raise LookupError("Không tìm thấy di tích.")
+        await self.repo.update_site(code, {"geofence_radius": radius})
+        return {"status": "success", "geofence_radius": radius}
 
     async def delete_site(self, code: str):
         if not await self.repo.delete_site(code):

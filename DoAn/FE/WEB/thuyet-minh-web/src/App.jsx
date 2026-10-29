@@ -29,6 +29,7 @@ import {
   loginAdmin,
   recordNarrationListen,
   updateSite,
+  updateSiteGeofenceRadius,
   updateLanguage,
   updateNarration,
   updateAdminCredentials,
@@ -378,7 +379,15 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
           {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onDelete={removeSite} />}
           {activePage === 'narrations' && <NarrationsPage notify={notify} languages={languages.filter((language) => language.is_active)} />}
           {activePage === 'languages' && <LanguagesPage languages={languages} loadError={languageLoadError} onLanguagesChange={replaceLanguages} notify={notify} />}
-          {activePage === 'map' && <MapPage notify={notify} sites={sites} />}
+          {activePage === 'map' && (
+            <MapPage
+              notify={notify}
+              sites={sites}
+              onSiteRadiusChange={(code, radius) => setSites((current) => current.map(
+                (site) => site.code === code ? { ...site, radius } : site,
+              ))}
+            />
+          )}
           {activePage === 'settings' && <SettingsPage account={account} onAccountUpdate={onAccountUpdate} notify={notify} authRequired={authRequired} />}
         </div>
         <footer className="footer"><span>© 2026 Di Tích Q1</span><span>Hệ thống thuyết minh di tích lịch sử Quận 1</span><span className="system-status"><i /> {backendStatus === 'connected' ? 'Đã kết nối Backend' : backendStatus === 'offline' ? 'Đang dùng dữ liệu mẫu · Backend chưa kết nối' : 'Đang kết nối Backend…'}</span></footer>
@@ -404,7 +413,6 @@ function Dashboard({ sites, languages, onNavigate }) {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   });
-  const [listenDevice, setListenDevice] = useState('all');
   const [listenStats, setListenStats] = useState(null);
   const [listenError, setListenError] = useState('');
 
@@ -470,7 +478,7 @@ function Dashboard({ sites, languages, onNavigate }) {
     let active = true;
     const refreshListenStats = async () => {
       try {
-        const stats = await fetchListenStats(listenPeriod, requestedListenDate, listenDevice);
+        const stats = await fetchListenStats(listenPeriod, requestedListenDate, 'all');
         if (!active) return;
         setListenStats(stats);
         setListenError('');
@@ -487,7 +495,7 @@ function Dashboard({ sites, languages, onNavigate }) {
       active = false;
       window.clearInterval(interval);
     };
-  }, [listenPeriod, requestedListenDate, listenDevice]);
+  }, [listenPeriod, requestedListenDate]);
 
   const chartBuckets = listenStats?.buckets ?? [];
   const chartMaximum = Math.max(1, ...chartBuckets.map((bucket) => bucket.count));
@@ -549,7 +557,7 @@ function Dashboard({ sites, languages, onNavigate }) {
 
           <div className="panel listening-panel">
             <div className="panel-heading">
-              <div><h3>Lượt nghe thuyết minh</h3><p>Thống kê hoạt động của người dùng</p></div>
+              <div><h3>Lượt nghe thuyết minh</h3><p>Tổng lượt nghe trên tất cả thiết bị</p></div>
               <div className="listen-filters">
                 <select
                   className="select-button"
@@ -569,17 +577,6 @@ function Dashboard({ sites, languages, onNavigate }) {
                     listenPeriod === 'day' ? event.target.value : `${event.target.value}-01`,
                   )}
                 />
-                <select
-                  className="select-button"
-                  aria-label="Lọc theo thiết bị"
-                  value={listenDevice}
-                  onChange={(event) => setListenDevice(event.target.value)}
-                >
-                  <option value="all">Tất cả thiết bị</option>
-                  <option value="web">Website</option>
-                  <option value="android">Android</option>
-                  <option value="ios">iPhone / iPad</option>
-                </select>
               </div>
             </div>
             <div className="chart-legend"><span className="legend-dot" /> Lượt nghe <span className="legend-period">{periodDescription}</span></div>
@@ -598,7 +595,7 @@ function Dashboard({ sites, languages, onNavigate }) {
             </div>
             <div className="chart-bottom">
               <span>{listenError || `Tổng cộng ${listenStats?.total?.toLocaleString('vi-VN') ?? '—'} lượt nghe trong kỳ đã chọn.`}</span>
-              <span>{listenDevice === 'all' ? 'Mọi thiết bị' : listenDevice === 'web' ? 'Website' : listenDevice === 'android' ? 'Android' : 'iPhone / iPad'}</span>
+              <span>Tất cả thiết bị</span>
             </div>
           </div>
         </div>
@@ -880,6 +877,7 @@ function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setSta
 
 function NarrationsPage({ notify, languages }) {
   const [selectedLang, setSelectedLang] = useState('Tất cả ngôn ngữ');
+  const [selectedSiteCode, setSelectedSiteCode] = useState('all');
   const [search, setSearch] = useState('');
   const [sites, setSites] = useState([]);
   const [narrations, setNarrations] = useState([]);
@@ -961,9 +959,17 @@ function NarrationsPage({ notify, languages }) {
       setSelectedLang('Tất cả ngôn ngữ');
     }
   }, [languages, selectedLang]);
+
+  useEffect(() => {
+    if (selectedSiteCode !== 'all' && !sites.some((site) => site.code === selectedSiteCode)) {
+      setSelectedSiteCode('all');
+    }
+  }, [selectedSiteCode, sites]);
+
   const visibleNarrations = narrations
     .filter((narration) => narration.is_active && languages.some((language) => language.code === narration.lang))
     .filter((narration) => selectedLang === 'Tất cả ngôn ngữ' || narration.language_name === selectedLang)
+    .filter((narration) => selectedSiteCode === 'all' || narration.site_code === selectedSiteCode)
     .filter((narration) => (
       `${narration.site_name} ${narration.language_name} ${narration.description}`
         .toLowerCase()
@@ -1091,6 +1097,7 @@ function NarrationsPage({ notify, languages }) {
       <div className="content-toolbar narration-toolbar">
         <div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm di tích, ngôn ngữ hoặc nội dung..." /></div>
         <label className="filter-select"><Globe2 size={15} /><select value={selectedLang} onChange={(event) => setSelectedLang(event.target.value)}><option>Tất cả ngôn ngữ</option>{languages.map((language) => <option key={language.code}>{language.name}</option>)}</select><ChevronDown size={14} /></label>
+        <label className="filter-select"><MapPin size={15} /><select aria-label="Lọc theo di tích" value={selectedSiteCode} onChange={(event) => setSelectedSiteCode(event.target.value)}><option value="all">Tất cả di tích</option>{sites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}</select><ChevronDown size={14} /></label>
         <span className="narration-total">{visibleNarrations.length} / {narrations.length} bài</span>
         <button className="icon-button narration-refresh" aria-label="Tải lại danh sách" title="Tải lại danh sách" disabled={loading} onClick={() => setReloadKey((key) => key + 1)}><RefreshCw size={15} /></button>
         <button className="button button-primary narration-add-button" disabled={!canAddNarration} onClick={() => { setEditingNarration(null); setIsModalOpen(true); }}><Plus size={15} /> Thêm bài</button>
@@ -1371,24 +1378,117 @@ function LanguageModal({ language, availableLanguages, onClose, onSave }) {
   </form></div>;
 }
 
-function MapPage({ notify, sites }) {
+function routeCoordinateAtProgress(coordinates, cumulativeDistances, progress) {
+  const totalDistance = cumulativeDistances.at(-1) ?? 0;
+  const targetDistance = totalDistance * progress;
+  let segmentIndex = cumulativeDistances.findIndex((distance) => distance >= targetDistance) - 1;
+  segmentIndex = Math.max(0, Math.min(segmentIndex, coordinates.length - 2));
+  const segmentStart = cumulativeDistances[segmentIndex];
+  const segmentEnd = cumulativeDistances[segmentIndex + 1];
+  const segmentProgress = segmentEnd > segmentStart
+    ? (targetDistance - segmentStart) / (segmentEnd - segmentStart)
+    : 0;
+  const [startLng, startLat] = coordinates[segmentIndex];
+  const [endLng, endLat] = coordinates[segmentIndex + 1];
+  return {
+    latitude: startLat + (endLat - startLat) * segmentProgress,
+    longitude: startLng + (endLng - startLng) * segmentProgress,
+  };
+}
+
+function distanceFromSite([longitude, latitude], site) {
+  const radians = Math.PI / 180;
+  const latitudeDelta = (latitude - site.lat) * radians;
+  const longitudeDelta = (longitude - site.lng) * radians;
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(site.lat * radians) * Math.cos(latitude * radians)
+    * Math.sin(longitudeDelta / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function routeToGeofence(coordinates, site, radius) {
+  if (!coordinates?.length || distanceFromSite(coordinates[0], site) <= radius) return null;
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const previous = coordinates[index - 1];
+    const current = coordinates[index];
+    if (distanceFromSite(previous, site) <= radius
+      || distanceFromSite(current, site) > radius) continue;
+
+    let outside = 0;
+    let inside = 1;
+    for (let iteration = 0; iteration < 20; iteration += 1) {
+      const fraction = (outside + inside) / 2;
+      const point = [
+        previous[0] + (current[0] - previous[0]) * fraction,
+        previous[1] + (current[1] - previous[1]) * fraction,
+      ];
+      if (distanceFromSite(point, site) > radius) outside = fraction;
+      else inside = fraction;
+    }
+    const boundary = [
+      previous[0] + (current[0] - previous[0]) * inside,
+      previous[1] + (current[1] - previous[1]) * inside,
+    ];
+    return [...coordinates.slice(0, index), boundary];
+  }
+  return coordinates;
+}
+
+function MapPage({ notify, sites, onSiteRadiusChange }) {
   const [currentLocation, setCurrentLocation] = useState(null);
   const [gpsWatching, setGpsWatching] = useState(false);
+  const [selectedSiteCode, setSelectedSiteCode] = useState('');
+  const [radiusDraft, setRadiusDraft] = useState(100);
+  const [savingRadius, setSavingRadius] = useState(false);
+  const [fitAllRequest, setFitAllRequest] = useState(0);
+  const [gpsFocusRequest, setGpsFocusRequest] = useState(0);
+  const [gpsFocusLocation, setGpsFocusLocation] = useState(null);
+  const [routeFocusRequest, setRouteFocusRequest] = useState(0);
+  const [simulation, setSimulation] = useState(null);
+  const [simulationLoading, setSimulationLoading] = useState(false);
+  const [simulationError, setSimulationError] = useState('');
   const watchId = useRef(null);
-  const mappedSites = useMemo(() => sites.filter((site) => {
-    const lat = Number(site.lat ?? site.location?.coordinates?.[1]);
-    const lng = Number(site.lng ?? site.location?.coordinates?.[0]);
+  const focusNextGpsLocation = useRef(false);
+  const mappedSites = useMemo(() => sites.flatMap((site) => {
+    const rawLat = site.lat ?? site.location?.coordinates?.[1];
+    const rawLng = site.lng ?? site.location?.coordinates?.[0];
+    const lat = rawLat === '' || rawLat == null ? Number.NaN : Number(rawLat);
+    const lng = rawLng === '' || rawLng == null ? Number.NaN : Number(rawLng);
     return Number.isFinite(lat) && lat >= -90 && lat <= 90
-      && Number.isFinite(lng) && lng >= -180 && lng <= 180;
-  }).map((site) => ({
-    ...site,
-    lat: Number(site.lat ?? site.location.coordinates[1]),
-    lng: Number(site.lng ?? site.location.coordinates[0]),
-  })), [sites]);
+      && Number.isFinite(lng) && lng >= -180 && lng <= 180
+      ? [{ ...site, lat, lng, radius: Number(site.radius) || 100 }]
+      : [];
+  }), [sites]);
+  const selectedSite = mappedSites.find((site) => site.code === selectedSiteCode)
+    ?? mappedSites[0]
+    ?? null;
+  const simulationLocation = simulation
+    ? routeCoordinateAtProgress(
+      simulation.coordinates,
+      simulation.cumulativeDistances,
+      simulation.step / (simulation.stepCount - 1),
+    )
+    : null;
+
+  useEffect(() => {
+    setRadiusDraft(Number(selectedSite?.radius ?? 100));
+  }, [selectedSite]);
 
   useEffect(() => () => {
     if (watchId.current !== null) navigator.geolocation?.clearWatch(watchId.current);
   }, []);
+
+  useEffect(() => {
+    if (simulation?.status !== 'walking') return undefined;
+    const timer = window.setTimeout(() => {
+      if (simulation.step >= simulation.stepCount - 1) {
+        setSimulation((current) => current ? { ...current, status: 'arrived' } : current);
+        return;
+      }
+      setSimulation((current) => current ? { ...current, step: current.step + 1 } : current);
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [simulation]);
 
   const locateUser = () => {
     if (!navigator.geolocation) {
@@ -1401,11 +1501,27 @@ function MapPage({ notify, sites }) {
       setGpsWatching(false);
       return;
     }
+    focusNextGpsLocation.current = true;
     watchId.current = navigator.geolocation.watchPosition(
-      ({ coords }) => setCurrentLocation([coords.latitude, coords.longitude]),
+      ({ coords }) => {
+        setCurrentLocation({
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+        });
+        if (focusNextGpsLocation.current) {
+          setGpsFocusLocation({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          });
+          setGpsFocusRequest((request) => request + 1);
+          focusNextGpsLocation.current = false;
+        }
+      },
       (error) => {
         if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
         watchId.current = null;
+        focusNextGpsLocation.current = false;
         setGpsWatching(false);
         notify(`Không lấy được vị trí GPS: ${error.message}`);
       },
@@ -1414,36 +1530,226 @@ function MapPage({ notify, sites }) {
     setGpsWatching(true);
   };
 
+  const saveRadius = async () => {
+    if (!selectedSite?.code) return;
+    setSavingRadius(true);
+    try {
+      const result = await updateSiteGeofenceRadius(selectedSite.code, radiusDraft);
+      const savedRadius = Number(result.geofence_radius);
+      onSiteRadiusChange(selectedSite.code, savedRadius);
+      setRadiusDraft(savedRadius);
+      notify(`Đã lưu bán kính ${savedRadius} m cho "${selectedSite.name}".`);
+    } catch (error) {
+      notify(`Không thể lưu bán kính: ${error.message}`);
+    } finally {
+      setSavingRadius(false);
+    }
+  };
+
+  const startSimulation = async () => {
+    if (!selectedSite?.code) return;
+    setSimulationLoading(true);
+    setSimulationError('');
+    setSimulation(null);
+    try {
+      const seed = selectedSite.code.split('').reduce(
+        (sum, character) => sum + character.charCodeAt(0), 0,
+      );
+      const bearing = seed * Math.PI / 180;
+      const distanceFromSite = Math.max(150, radiusDraft + 75);
+      const origin = {
+        latitude: selectedSite.lat + (distanceFromSite * Math.cos(bearing)) / 111320,
+        longitude: selectedSite.lng + (distanceFromSite * Math.sin(bearing))
+          / (111320 * Math.cos(selectedSite.lat * Math.PI / 180)),
+      };
+      const routeCoordinates = `${origin.longitude},${origin.latitude};${selectedSite.lng},${selectedSite.lat}`;
+      const response = await fetch(
+        `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${routeCoordinates}?overview=full&geometries=geojson&steps=false`,
+      );
+      if (!response.ok) {
+        throw new Error(`Dịch vụ chỉ đường trả về lỗi HTTP ${response.status}.`);
+      }
+      const data = await response.json();
+      const route = data.routes?.[0];
+      const fullCoordinates = route?.geometry?.coordinates;
+      if (data.code !== 'Ok' || !Array.isArray(fullCoordinates) || fullCoordinates.length < 2
+        || fullCoordinates.some((coordinate) => !Array.isArray(coordinate)
+          || coordinate.length < 2
+          || !coordinate.slice(0, 2).every(Number.isFinite))) {
+        throw new Error('Không tìm được tuyến đi bộ đến di tích này.');
+      }
+      const coordinates = routeToGeofence(fullCoordinates, selectedSite, radiusDraft);
+      if (!coordinates || coordinates.length < 2) {
+        throw new Error('Không tìm được tuyến đi bộ từ ngoài vào geofence của di tích.');
+      }
+      const cumulativeDistances = [0];
+      for (let index = 1; index < coordinates.length; index += 1) {
+        const [previousLng, previousLat] = coordinates[index - 1];
+        const [longitude, latitude] = coordinates[index];
+        const latDistance = (latitude - previousLat) * 111320;
+        const lngDistance = (longitude - previousLng)
+          * 111320 * Math.cos(latitude * Math.PI / 180);
+        cumulativeDistances.push(
+          cumulativeDistances[index - 1] + Math.hypot(latDistance, lngDistance),
+        );
+      }
+      const stepCount = Math.max(12, Math.min(24, Math.ceil(route.distance / 3)));
+      const simulationDistance = cumulativeDistances.at(-1);
+      if (!Number.isFinite(simulationDistance) || simulationDistance <= 0) {
+        throw new Error('Tuyến đi bộ trả về khoảng cách không hợp lệ.');
+      }
+      setSimulation({
+        coordinates,
+        cumulativeDistances,
+        stepCount,
+        step: 0,
+        distance: simulationDistance,
+        status: 'walking',
+      });
+      setRouteFocusRequest((request) => request + 1);
+    } catch (error) {
+      setSimulationError(error.message || 'Không thể chạy mô phỏng đường đi.');
+      notify(`Không thể chạy mô phỏng: ${error.message}`);
+    } finally {
+      setSimulationLoading(false);
+    }
+  };
+
+  const selectSite = (site) => {
+    setSelectedSiteCode(site.code);
+    setSimulation(null);
+    setSimulationError('');
+  };
+
+  const stopSimulation = () => {
+    setSimulation(null);
+    setSimulationError('');
+  };
+
+  const radiusIsDirty = selectedSite
+    && radiusDraft !== Number(selectedSite.radius ?? 100);
+
   return <div className="map-page">
     <section className="panel map-large-panel">
       <div className="panel-heading">
         <div>
           <h3>Vị trí các điểm di tích</h3>
-          <p>Quận 1, Thành phố Hồ Chí Minh · {mappedSites.length} di tích từ dữ liệu</p>
+          <p>Quận 1, Thành phố Hồ Chí Minh · {mappedSites.length} di tích có tọa độ</p>
         </div>
-        <button className="button button-secondary small-button" onClick={locateUser}>
-          <Compass size={15} /> {gpsWatching ? 'Dừng định vị' : 'Bật định vị'}
-        </button>
+        <div className="map-toolbar">
+          <button
+            className="button button-secondary small-button"
+            onClick={() => setFitAllRequest((request) => request + 1)}
+            disabled={!mappedSites.length}
+          >
+            Hiện tất cả
+          </button>
+          <button className="button button-secondary small-button" onClick={locateUser}>
+            <Compass size={15} /> {gpsWatching ? 'Dừng GPS' : 'Vị trí của tôi'}
+          </button>
+        </div>
       </div>
-      {mappedSites.length
-        ? <SiteMap sites={mappedSites} currentLocation={currentLocation} />
-        : <p className="map-empty">Chưa có di tích với tọa độ hợp lệ trong Backend.</p>}
+      <SiteMap
+        sites={mappedSites}
+        currentLocation={currentLocation}
+        selectedSiteCode={selectedSite?.code}
+        onSelectSite={selectSite}
+        simulationLocation={simulationLocation}
+        routeCoordinates={simulation?.coordinates}
+        fitAllRequest={fitAllRequest}
+        gpsFocusRequest={gpsFocusRequest}
+        gpsFocusLocation={gpsFocusLocation}
+        routeFocusRequest={routeFocusRequest}
+      />
     </section>
     <section className="gps-side">
       <div className="panel gps-status-panel">
         <div className="gps-status-head">
           <span className="gps-icon"><ShieldCheck size={19} /></span>
-          <span className="gps-online"><i /> {gpsWatching ? 'ĐANG THEO DÕI' : 'GPS TẮT'}</span>
+          <span className={`gps-online ${gpsWatching ? '' : 'gps-offline'}`}>
+            <i /> {gpsWatching ? 'ĐANG THEO DÕI' : 'GPS TẮT'}
+          </span>
         </div>
         <h3>GPS & Geofence</h3>
         <p>{currentLocation
-          ? `Vị trí hiện tại: ${currentLocation[0].toFixed(5)}, ${currentLocation[1].toFixed(5)}.`
-          : 'Bật định vị để hiển thị vị trí hiện tại trên bản đồ. GPS chỉ được theo dõi khi bạn bật nút.'}</p>
-        <div className="radius-setting"><div><span>Bán kính kích hoạt mặc định</span><strong>100 <small>mét</small></strong></div><p>Áp dụng cố định cho tất cả di tích.</p></div>
+          ? `Tọa độ GPS: ${currentLocation.latitude.toFixed(6)}, ${currentLocation.longitude.toFixed(6)} · sai số ${Math.round(currentLocation.accuracy)} m.`
+          : 'Bật định vị để xem tọa độ hiện tại và vị trí của bạn trên bản đồ.'}</p>
+        {selectedSite ? <>
+          <div className="map-site-details">
+            <strong>{selectedSite.name}</strong>
+            <span>{selectedSite.status} · tọa độ di tích</span>
+            <code>{selectedSite.lat.toFixed(6)}, {selectedSite.lng.toFixed(6)}</code>
+          </div>
+          <div className="radius-setting">
+            <div className="radius-setting-heading">
+              <label htmlFor="geofence-radius">Bán kính geofence</label>
+              <strong>{radiusDraft} <small>mét</small></strong>
+            </div>
+            <input
+              id="geofence-radius"
+              type="range"
+              min="10"
+              max="1000"
+              step="10"
+              value={radiusDraft}
+              onChange={(event) => setRadiusDraft(Number(event.target.value))}
+              disabled={savingRadius}
+            />
+            <div className="radius-input-row">
+              <input
+                type="number"
+                min="10"
+                max="1000"
+                step="10"
+                value={radiusDraft}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value)) setRadiusDraft(Math.min(1000, Math.max(10, value)));
+                }}
+                aria-label="Nhập bán kính geofence theo mét"
+                disabled={savingRadius}
+              />
+              <button
+                className="button button-primary small-button"
+                onClick={saveRadius}
+                disabled={!radiusIsDirty || savingRadius}
+              >
+                {savingRadius ? 'Đang lưu…' : 'Lưu bán kính'}
+              </button>
+            </div>
+            <p>Bán kính được lưu theo từng di tích và đồng bộ với ứng dụng.</p>
+          </div>
+          <div className="simulation-controls">
+            <button
+              className="button button-secondary small-button"
+              onClick={simulation?.status === 'walking' ? stopSimulation
+                : simulation?.status === 'arrived' ? stopSimulation : startSimulation}
+              disabled={simulationLoading}
+            >
+              {simulationLoading
+                ? 'Đang tìm đường…'
+                : simulation?.status === 'walking'
+                  ? 'Dừng mô phỏng'
+                  : simulation?.status === 'arrived'
+                    ? 'Xóa mô phỏng'
+                    : 'Giả lập đường đi'}
+            </button>
+            {simulation && (
+              <p>
+                {simulation.status === 'walking' ? 'Đang di chuyển trên tuyến đi bộ' : 'Đã đến di tích'}
+                {' · '}{Math.round(simulation.distance)} m
+              </p>
+            )}
+            {simulationError && <p className="simulation-error">{simulationError}</p>}
+          </div>
+        </> : <p className="map-empty-inline">Chọn di tích có tọa độ trên bản đồ để chỉnh bán kính và chạy mô phỏng.</p>}
       </div>
       <div className="panel gps-help-panel">
         <div className="gps-help-icon"><CircleHelp size={17} /></div>
-        <div><strong>Bản đồ dữ liệu thật</strong><p>Chọn một điểm đánh dấu để xem tên, địa chỉ và tọa độ. Bản đồ nền dùng OpenStreetMap.</p></div>
+        <div>
+          <strong>Mô phỏng thử nghiệm</strong>
+          <p>Tuyến đi bộ được truy vấn từ dịch vụ OpenStreetMap. Vị trí mô phỏng chỉ dùng để kiểm tra, không ghi nhận lượt nghe.</p>
+        </div>
       </div>
     </section>
   </div>;

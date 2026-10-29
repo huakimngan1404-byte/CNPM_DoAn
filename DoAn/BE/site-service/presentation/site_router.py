@@ -54,6 +54,9 @@ class SiteAdminUpdate(BaseModel):
     description: str = Field(min_length=10, max_length=20000)
     is_active: bool = True
 
+class SiteGeofenceRadiusUpdate(BaseModel):
+    geofence_radius: float = Field(ge=10, le=1000)
+
 class LanguageAdminForm(BaseModel):
     code: str = Field(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
     name: str = Field(min_length=1, max_length=100)
@@ -247,6 +250,13 @@ async def create_site(data: SiteAdminForm):
 async def update_site(code: str, data: SiteAdminUpdate):
     try:
         return await service.update_site(code, to_site_document(data, code))
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+@router.patch("/{code}/geofence-radius", dependencies=[Depends(require_admin)])
+async def update_site_geofence_radius(code: str, data: SiteGeofenceRadiusUpdate):
+    try:
+        return await service.update_geofence_radius(code, data.geofence_radius)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

@@ -428,4 +428,7 @@ class SiteRepository:
                 {"$setOnInsert": site},
                 upsert=True,
             )
-        await db.sites.update_many({}, {"$set": {"geofence_radius": 100.0}})
+        await db.sites.update_many(
+            {"geofence_radius": {"$exists": False}},
+            {"$set": {"geofence_radius": 100.0}},
+        )

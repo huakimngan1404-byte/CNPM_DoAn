@@ -110,6 +110,7 @@ export async function fetchSites() {
     description: record.description || '',
     lat: record.lat ?? record.location?.coordinates?.[1] ?? '',
     lng: record.lng ?? record.location?.coordinates?.[0] ?? '',
+    radius: Number(record.geofence_radius ?? record.radius ?? 100),
     isActive: record.is_active !== false,
     languages: ['VI'],
     narrations: 1,
@@ -320,6 +321,14 @@ export async function updateSite(code, site) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toSitePayload(site)),
+  }, true);
+}
+
+export async function updateSiteGeofenceRadius(code, radius) {
+  return requestSite(`/api/sites/${encodeURIComponent(code)}/geofence-radius`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ geofence_radius: radius }),
   }, true);
 }
 
