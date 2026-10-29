@@ -480,7 +480,7 @@ function Dashboard({ sites, languages, onNavigate }) {
     : [0, Math.round((chartPoints.length - 1) / 4), Math.round((chartPoints.length - 1) / 2), Math.round(((chartPoints.length - 1) * 3) / 4), chartPoints.length - 1];
   const chartLabels = [...new Set(chartLabelIndexes)].map((index) => chartPoints[index]);
   const chartScale = [1, 0.75, 0.5, 0.25, 0].map((ratio) => Math.round(chartMaximum * ratio));
-  const listenCountsBySite = new Map(
+  const listenCountsBySite = new globalThis.Map(
     (listenStats?.top_sites ?? []).map((site) => [site.site_code, site.count]),
   );
   const topSitesData = sites
