@@ -5,7 +5,12 @@ import logging
 import re
 import sys
 import types
-from fastapi import APIRouter, Request, Response, HTTPException
+import base64
+import binascii
+import hmac
+import json
+import time
+from fastapi import APIRouter, Depends, Header, Request, Response, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from business.audio_service import TTSService, AudioTaskManager
 from business.site_translation_service import SiteTranslationError, SiteTranslationService
@@ -64,6 +69,54 @@ def _get_main_config():
             )
     main = main_module
     return main_module
+
+
+def _decode_admin_token_part(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+async def require_admin(authorization: str | None = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Vui lòng đăng nhập quản trị.")
+
+    database = getattr(_get_main_config(), "db", None)
+    if database is None:
+        raise HTTPException(status_code=503, detail="Dịch vụ xác thực quản trị không khả dụng.")
+
+    try:
+        encoded_payload, signature = authorization[7:].strip().split(".", 1)
+        payload = json.loads(_decode_admin_token_part(encoded_payload))
+        account = await database["admin_accounts"].find_one({"_id": "primary"})
+        if not isinstance(payload, dict) or not account:
+            raise ValueError("Invalid admin session")
+        if account.get("username") != payload.get("sub"):
+            raise ValueError("Invalid admin session")
+        expected_signature = hmac.new(
+            _decode_admin_token_part(account["token_secret"]),
+            encoded_payload.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        if not hmac.compare_digest(
+            _decode_admin_token_part(signature),
+            expected_signature,
+        ):
+            raise ValueError("Invalid admin session")
+        if int(payload.get("exp", 0)) <= int(time.time()):
+            raise ValueError("Expired admin session")
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        UnicodeDecodeError,
+        binascii.Error,
+        json.JSONDecodeError,
+    ) as error:
+        raise HTTPException(
+            status_code=401,
+            detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn.",
+        ) from error
+
+    return {"username": account["username"]}
 
 
 async def translate_with_timeout(text: str, lang: str):
@@ -163,7 +216,7 @@ async def get_audio_file(asset_id: str, request: Request):
     return Response(content=audio_data, media_type=content_type, headers=headers)
 
 
-@router.get("/{site_code}")
+@router.get("/{site_code}", dependencies=[Depends(require_admin)])
 async def get_site_translation(site_code: str, lang: str = "vi"):
     config = _get_main_config()
     db = getattr(config, "db", None)

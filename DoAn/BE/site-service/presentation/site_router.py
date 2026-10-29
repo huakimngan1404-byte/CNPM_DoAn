@@ -4,7 +4,7 @@ from typing import Literal
 from urllib.parse import quote
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from business.site_service import SiteService
 from presentation.auth_router import require_admin
@@ -74,6 +74,9 @@ class NarrationAdminCreate(BaseModel):
 
 class NarrationAdminUpdate(BaseModel):
     description: str = Field(min_length=10, max_length=20000)
+
+class NarrationGenerationRequest(BaseModel):
+    lang: str = Field(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 
 # --- CONTROLLERS ---
 
@@ -213,11 +216,37 @@ async def get_admin_sites():
 
 @router.get("/{code}/narration")
 async def get_site_narration(code: str, lang: str = "vi"):
+    language = await service.repo.get_language(lang)
+    if not language or language.get("is_active") is False or language.get("is_deleted") is True:
+        raise HTTPException(status_code=404, detail="Chưa có bài thuyết minh cho ngôn ngữ này.")
+
+    narration = await service.repo.get_narration(code, lang)
+    if not narration or not narration.get("audio_asset_id") or not narration.get("audio_url"):
+        raise HTTPException(status_code=404, detail="Chưa có bài thuyết minh cho ngôn ngữ này.")
+
+    ready_audio_ids = await service.repo.get_ready_audio_asset_ids([narration])
+    if narration["audio_asset_id"] not in ready_audio_ids:
+        raise HTTPException(status_code=404, detail="Chưa có bài thuyết minh cho ngôn ngữ này.")
+
+    return {
+        "site_code": code,
+        "lang": lang,
+        "description": narration.get("description", ""),
+        "audio_url": narration["audio_url"],
+    }
+
+@router.post("/{code}/narration", dependencies=[Depends(require_admin)])
+async def generate_site_narration(
+    code: str,
+    data: NarrationGenerationRequest,
+    authorization: str = Header(...),
+):
     try:
         async with httpx.AsyncClient(timeout=45) as client:
             response = await client.get(
                 f"{translation_service_url}/api/audio/{quote(code, safe='')}",
-                params={"lang": lang},
+                params={"lang": data.lang},
+                headers={"Authorization": authorization},
             )
     except httpx.RequestError as error:
         raise HTTPException(

@@ -6,11 +6,16 @@ Tests cover exception types, exponential backoff, caching, and edge cases.
 import pytest
 import asyncio
 import logging
+import base64
+import hashlib
+import hmac
+import json
+import time
 from unittest.mock import patch, MagicMock, AsyncMock, call
 from business import audio_service
 from business.audio_service import TTSService
 from business.site_translation_service import SiteTranslationService
-from presentation.audio_router import get_audio_file, get_site_translation
+from presentation.audio_router import get_audio_file, get_site_translation, require_admin
 from deep_translator.exceptions import (
     ServerException,
     RequestError,
@@ -28,6 +33,36 @@ class TestDatabaseBackedSiteTranslation:
         audio_path = tmp_path / filename
         audio_path.write_bytes(b"test audio")
         return str(audio_path)
+
+    @pytest.mark.asyncio
+    async def test_translation_generation_requires_valid_admin_session(self):
+        from fastapi import HTTPException
+
+        secret = b"admin-test-secret"
+        encode = lambda value: base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+        payload = encode(json.dumps({
+            "sub": "admin",
+            "exp": int(time.time()) + 600,
+        }, separators=(",", ":")).encode())
+        signature = encode(hmac.new(secret, payload.encode("ascii"), hashlib.sha256).digest())
+        token = f"{payload}.{signature}"
+
+        accounts = MagicMock()
+        accounts.find_one = AsyncMock(return_value={
+            "_id": "primary",
+            "username": "admin",
+            "token_secret": encode(secret),
+        })
+        database = MagicMock()
+        database.__getitem__.side_effect = {"admin_accounts": accounts}.__getitem__
+
+        with patch("presentation.audio_router.main.db", database):
+            assert await require_admin(f"Bearer {token}") == {"username": "admin"}
+
+            with pytest.raises(HTTPException) as exc_info:
+                await require_admin("Bearer invalid")
+
+        assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("lang", ["fr", "de", "es", "ru", "th", "it"])

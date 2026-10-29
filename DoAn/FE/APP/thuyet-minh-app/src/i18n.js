@@ -629,6 +629,18 @@ export const translateLanguageName = (code, fallbackName, language = 'vi') => (
   localizedLanguageNames[language]?.[code] || fallbackName
 );
 
+export const narrationUnavailableMessage = (code, fallbackName, language = 'vi') => {
+  const narrationLanguage = translateLanguageName(code, fallbackName, language);
+  const messages = {
+    vi: `Chúng tôi đang cập nhật bài thuyết minh bằng ${narrationLanguage}.`,
+    en: `We are currently preparing the ${narrationLanguage} audio guide.`,
+    ja: `${narrationLanguage}の音声ガイドは現在準備中です。`,
+    zh: `我们正在准备${narrationLanguage}语音讲解。`,
+    fr: `Nous préparons actuellement le guide audio en ${narrationLanguage}.`,
+  };
+  return messages[language] || messages.vi;
+};
+
 export const translateUiText = (value, language = 'vi') => {
   const dictionary = translations[language];
   if (!dictionary) return value;

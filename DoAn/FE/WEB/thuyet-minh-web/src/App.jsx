@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowRight, ArrowUpRight, AudioLines, BookOpen,
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass,
-  Filter, Globe2, Headphones, LayoutDashboard, Map,
+  Filter, Globe2, Headphones, LayoutDashboard, LoaderCircle, Map,
   LogOut, MapPin, Menu, MoreHorizontal, Pause, Pencil, Play, Plus, RefreshCw, Search, Settings2,
   Eye, EyeOff, ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
@@ -23,6 +23,7 @@ import {
   fetchListenStats,
   fetchRecentActivity,
   fetchSiteNarration,
+  generateSiteNarration,
   apiBaseUrl,
   heartbeatVisitor,
   leaveVisitor,
@@ -717,7 +718,7 @@ function ListenerDemo({ siteCode, siteName }) {
       })
       .catch((error) => {
         if (!active) return;
-        setNarrationError(error.message);
+        setNarrationError(error);
       })
       .finally(() => {
         if (active) setNarrationLoading(false);
@@ -728,6 +729,10 @@ function ListenerDemo({ siteCode, siteName }) {
   const audioUrl = narration?.audio_url
     ? (narration.audio_url.startsWith('http') ? narration.audio_url : `${apiBaseUrl}${narration.audio_url}`)
     : '';
+  const narrationUnavailable = narrationError?.status === 404;
+  const narrationErrorMessage = narrationUnavailable
+    ? `Chúng tôi đang cập nhật bài thuyết minh bằng ${selectedLanguageInfo?.name || selectedLanguage}.`
+    : narrationError?.message || narrationError;
 
   return (
     <main className="listener-page">
@@ -782,11 +787,11 @@ function ListenerDemo({ siteCode, siteName }) {
           </div>
         ) : (
           <div className="listener-audio-placeholder">
-            {narrationLoading ? `Đang tải bài thuyết minh ${selectedLanguageInfo?.name}…` : narrationError}
+            {narrationLoading ? `Đang tải bài thuyết minh ${selectedLanguageInfo?.name}…` : narrationErrorMessage}
           </div>
         )}
         {audioPlaybackError && <p className="listener-audio-warning">{audioPlaybackError}</p>}
-        {narrationError && !narrationLoading && (
+        {narrationError && !narrationLoading && !narrationUnavailable && (
           <div className="listener-speech-actions">
             <button className="listener-retry" onClick={() => setNarrationAttempt((attempt) => attempt + 1)}>Thử tải lại</button>
           </div>
@@ -986,7 +991,8 @@ function NarrationsPage({ notify, languages }) {
       },
     }));
 
-  const saveNarration = async (formData) => {
+  const saveNarration = async (formData, reportProgress) => {
+    reportProgress('Đang lưu nội dung bài thuyết minh…');
     if (editingNarration) {
       await updateNarration(
         editingNarration.site_code,
@@ -997,7 +1003,8 @@ function NarrationsPage({ notify, languages }) {
       await createNarration(formData);
     }
     try {
-      const generatedNarration = await fetchSiteNarration(formData.site_code, formData.lang);
+      reportProgress('Đang tạo audio cho bài thuyết minh…');
+      const generatedNarration = await generateSiteNarration(formData.site_code, formData.lang);
       if (typeof generatedNarration.audio_url !== 'string' || !generatedNarration.audio_url) {
         throw new Error('Backend chưa trả về file audio.');
       }
@@ -1070,7 +1077,7 @@ function NarrationsPage({ notify, languages }) {
       if (!item.site_code) {
         throw new Error(`Không tìm thấy mã di tích "${item.site_name}" trong Backend.`);
       }
-      const narration = await fetchSiteNarration(
+      const narration = await generateSiteNarration(
         item.site_code,
         item.language.code,
       );
@@ -1148,6 +1155,7 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [savingMessage, setSavingMessage] = useState('');
   const narrationLanguage = narration && !languages.some((language) => language.code === narration.lang)
     ? { code: narration.lang, name: narration.language_name, flag: narration.language_flag }
     : null;
@@ -1171,7 +1179,7 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
     setGenerating(true);
     setError('');
     try {
-      const result = await fetchSiteNarration(siteCode, lang);
+      const result = await generateSiteNarration(siteCode, lang);
       if (typeof result.description !== 'string' || !result.description.trim()) {
         throw new Error('Dịch vụ dịch không trả về nội dung bài thuyết minh.');
       }
@@ -1190,16 +1198,18 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
       return;
     }
     setSaving(true);
+    setSavingMessage('Đang lưu nội dung bài thuyết minh…');
     setError('');
     try {
       await onSave({
         site_code: siteCode,
         lang,
         description: description.trim(),
-      });
+      }, setSavingMessage);
     } catch (saveError) {
       setError(saveError.message);
       setSaving(false);
+      setSavingMessage('');
     }
   };
 
@@ -1211,17 +1221,25 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
       {!narration && <p className="narration-generate-note">{canGenerateTranslation
         ? 'Có thể tự nhập nội dung hoặc tạo bản dịch từ mô tả tiếng Việt của di tích. Nội dung và audio sẽ được lưu vào Backend.'
         : 'Tiếng Việt là nội dung gốc: vui lòng tự viết hoặc nhập nội dung tiếng Việt tại đây.'}</p>}
+      {(saving || generating) && <div className="narration-loading" role="status" aria-live="polite">
+        <LoaderCircle className="narration-spinner" size={19} />
+        <div>
+          <strong>{saving ? savingMessage : 'Đang tạo nội dung và audio…'}</strong>
+          <span>Vui lòng đợi, quá trình này có thể mất một chút thời gian.</span>
+        </div>
+        <span className="narration-loading-track"><i /></span>
+      </div>}
       <label>Nội dung thuyết minh <em>*</em>
-        <textarea rows="9" value={description} onChange={(event) => { setDescription(event.target.value); setError(''); }} maxLength={20000} placeholder={canGenerateTranslation ? 'Nhập nội dung hoặc tạo bản dịch tự động từ tiếng Việt...' : 'Tự nhập nội dung thuyết minh bằng tiếng Việt...'} />
+        <textarea rows="9" value={description} disabled={saving || generating} onChange={(event) => { setDescription(event.target.value); setError(''); }} maxLength={20000} placeholder={canGenerateTranslation ? 'Nhập nội dung hoặc tạo bản dịch tự động từ tiếng Việt...' : 'Tự nhập nội dung thuyết minh bằng tiếng Việt...'} />
         <small className="field-hint">{description.length.toLocaleString('vi-VN')} / 20.000 ký tự</small>
       </label>
       {error && <div className="form-error" role="alert">{error}</div>}
     </div>
     <div className="modal-foot narration-modal-foot">
-      {canGenerateTranslation && <button type="button" className="button button-secondary" onClick={generateTranslation} disabled={saving || generating || !selectedSite || !selectedLanguage}>{generating ? 'Đang dịch và tạo audio…' : 'Tạo nội dung tự động'}</button>}
+      {canGenerateTranslation && <button type="button" className="button button-secondary" onClick={generateTranslation} disabled={saving || generating || !selectedSite || !selectedLanguage}>{generating && <LoaderCircle className="narration-spinner" size={14} />}{generating ? 'Đang tạo nội dung…' : 'Tạo nội dung tự động'}</button>}
       <span className="modal-foot-spacer" />
       <button type="button" className="button button-secondary" onClick={onClose} disabled={saving || generating}>Hủy</button>
-      <button className="button button-primary" type="submit" disabled={saving || generating || !siteCode || !lang}>{saving ? 'Đang lưu và tạo audio…' : narration ? 'Lưu thay đổi' : 'Thêm bài'} {!saving && <ArrowRight size={15} />}</button>
+      <button className="button button-primary" type="submit" disabled={saving || generating || !siteCode || !lang}>{saving && <LoaderCircle className="narration-spinner" size={14} />}{saving ? 'Đang xử lý…' : narration ? 'Lưu thay đổi' : 'Thêm bài'} {!saving && <ArrowRight size={15} />}</button>
     </div>
   </form></div>;
 }

@@ -139,7 +139,9 @@ async function requestSite(path, options = {}, requiresAdmin = false) {
     } catch {
       // Keep the HTTP status message when the response is not JSON.
     }
-    throw new Error(detail);
+    const error = new Error(detail);
+    error.status = response.status;
+    throw error;
   }
   return response.status === 204 ? null : response.json();
 }
@@ -341,5 +343,17 @@ export async function deleteSite(code) {
 export async function fetchSiteNarration(siteCode, lang = 'vi') {
   return requestSite(
     `/api/sites/${encodeURIComponent(siteCode)}/narration?lang=${encodeURIComponent(lang)}`,
+  );
+}
+
+export async function generateSiteNarration(siteCode, lang = 'vi') {
+  return requestSite(
+    `/api/sites/${encodeURIComponent(siteCode)}/narration`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lang }),
+    },
+    true,
   );
 }

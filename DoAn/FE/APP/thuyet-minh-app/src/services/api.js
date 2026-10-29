@@ -110,8 +110,13 @@ export const fetchNearbySites = async (lat, lng, lang = 'vi') => {
 
 export const fetchSiteAudio = async (siteCode, lang = 'vi') => {
     const response = await fetch(
-        `${translationBaseUrl}/api/audio/${encodeURIComponent(siteCode)}?lang=${encodeURIComponent(lang)}`
+        `${apiOrigin}/api/sites/${encodeURIComponent(siteCode)}/narration?lang=${encodeURIComponent(lang)}`
     );
+    if (response.status === 404) {
+        const error = new Error('Chưa có bài thuyết minh cho ngôn ngữ này.');
+        error.status = response.status;
+        throw error;
+    }
     const translation = await parseResponse(response);
     if (!translation.audio_url) {
         throw new Error('Máy chủ chưa trả về đường dẫn audio cho di tích này.');
@@ -120,7 +125,9 @@ export const fetchSiteAudio = async (siteCode, lang = 'vi') => {
     const audioPath = new URL(translation.audio_url, `${translationBaseUrl}/`).pathname;
     return {
         ...translation,
-        audioUrl: `${translationBaseUrl}${audioPath}`,
+        audioUrl: translation.audio_url.startsWith('http')
+            ? translation.audio_url
+            : `${translationBaseUrl}${audioPath}`,
     };
 };
 

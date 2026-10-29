@@ -22,7 +22,9 @@ import {
   heartbeatVisitor, leaveVisitor, recordNarrationListen,
 } from './src/services/api.js';
 import MapCanvas from './src/components/MapCanvas';
-import { translateLanguageName, translateUiText } from './src/i18n.js';
+import {
+  narrationUnavailableMessage, translateLanguageName, translateUiText,
+} from './src/i18n.js';
 
 const UiLanguageContext = createContext('vi');
 
@@ -305,13 +307,15 @@ useEffect(() => {
       .catch((error) => {
         if (!isActive) return;
         console.error('Không thể tải audio của di tích:', error);
-        setAudioError(error.message);
+        setAudioError(error.status === 404
+          ? narrationUnavailableMessage(audioLanguage.id, audioLanguage.name, appLanguage.id)
+          : error.message);
         setAudioLoading(false);
         setPendingAutoPlaySiteId(null);
       });
 
     return () => { isActive = false; };
-  }, [activeTab, audioPlayer, audioLanguage.id, mapAudioSiteId, pendingAutoPlaySiteId, screen, selectedSite?.id, selectedSite?.code, selectedSite?.audioUrl, selectedSite?.audioLang]);
+  }, [activeTab, appLanguage.id, audioPlayer, audioLanguage.id, audioLanguage.name, mapAudioSiteId, pendingAutoPlaySiteId, screen, selectedSite?.id, selectedSite?.code, selectedSite?.audioUrl, selectedSite?.audioLang]);
 
   useEffect(() => {
     if (audioPlayer.isLoaded
@@ -1057,6 +1061,8 @@ function ExploreCard({ site, index, saved, onPress, onSave }) {
 function DetailScreen({ site, sites: siteList, language, playing, audioLoading, audioError, elapsed, duration, isSaved, onBack, onPlay, onSeek, onSave, onLanguage, onOpenSite }) {
   const interfaceLanguage = useContext(UiLanguageContext);
   if (!site) return null;
+  const hasSelectedNarration = site.audioLang === language.id
+    || (!site.audioLang && language.id === 'vi');
   site = {
         ...site,
         color: site.color || '#F04D2E',
@@ -1069,6 +1075,9 @@ function DetailScreen({ site, sites: siteList, language, playing, audioLoading, 
         address: site.address || 'Quận 1, TP. Hồ Chí Minh',
         story: site.story || 'Nội dung thuyết minh đang được cập nhật...'
     };
+  const storyText = hasSelectedNarration
+    ? site.story
+    : narrationUnavailableMessage(language.id, language.name, interfaceLanguage);
   const recommendationsDrag = useMouseDragScroll();
   const progress = `${Math.min(100, duration ? (elapsed / duration) * 100 : 0)}%`;
   return <View style={styles.detailRoot}>
@@ -1094,7 +1103,7 @@ function DetailScreen({ site, sites: siteList, language, playing, audioLoading, 
             <View><Text style={styles.storyTitle}>Lắng nghe lịch sử</Text></View>
             <Pressable style={styles.shareButton} onPress={() => {}}><Share2 size={16} color="#6E6964" /></Pressable>
           </View>
-          <Text style={styles.storyText}>{site.story}</Text>
+          <Text style={styles.storyText}>{storyText}</Text>
         <View style={styles.locationCard}><View style={styles.locationMapArt}><View style={styles.mapStreetLine} /><View style={styles.mapBlockA} /><View style={styles.mapBlockB} /><View style={styles.locationPin}><MapPin size={17} color="#fff" fill={accent} /></View></View><View style={styles.locationText}><View><Text style={styles.storyEyebrow}>VỊ TRÍ DI TÍCH</Text><Text style={styles.locationAddress}>{site.address}</Text><Text style={styles.locationDistrict}>Quận 1, TP. Hồ Chí Minh</Text></View><Pressable style={styles.navigateButton} onPress={() => {}}><Navigation size={15} color="#fff" /></Pressable></View></View>
         <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>Nghe tiếp hành trình</Text><Text style={styles.sectionSub}>Những điểm gần đây</Text></View></View>
         <ScrollView {...recommendationsDrag} horizontal showsHorizontalScrollIndicator={false} onWheel={Platform.OS === 'web' ? scrollHorizontallyWithWheel : undefined} contentContainerStyle={styles.horizontalCards}>{siteList.filter((item) => item.id !== site.id).slice(0, 4).map((item) => <MiniPlaceCard key={item.id} site={item} onPress={() => onOpenSite(item)} />)}</ScrollView>

@@ -311,6 +311,15 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .narration-modal { max-width: 650px; }
 .narration-modal .modal-body textarea { min-height: 180px; resize: vertical; }
 .narration-modal-foot { flex-wrap: wrap; }
+.narration-loading { position: relative; display: flex; align-items: flex-start; gap: 10px; overflow: hidden; padding: 11px 12px 15px; border: 1px solid #f3ded6; border-radius: 7px; color: #d85d42; background: #fff9f6; }
+.narration-loading > div { display: flex; flex-direction: column; gap: 3px; }
+.narration-loading strong { color: #575150; font-size: 10px; font-weight: 600; }
+.narration-loading span:not(.narration-loading-track) { color: #938a86; font-size: 9px; }
+.narration-spinner { flex: 0 0 auto; animation: narration-spin .9s linear infinite; }
+@keyframes narration-spin { to { transform: rotate(360deg); } }
+.narration-loading-track { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; overflow: hidden; background: #f7e9e3; }
+.narration-loading-track i { display: block; width: 38%; height: 100%; border-radius: inherit; background: #e9593b; animation: narration-progress 1.4s ease-in-out infinite; }
+@keyframes narration-progress { from { transform: translateX(-110%); } to { transform: translateX(280%); } }
 .modal-foot-spacer { flex: 1; }
 
 .language-page { display: flex; flex-direction: column; gap: 15px; }
