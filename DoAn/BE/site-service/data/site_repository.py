@@ -131,28 +131,19 @@ class SiteRepository:
                 },
                 upsert=True,
             )
-        migrations = db["language_catalog_migrations"]
-        migration_id = "hide-extra-languages-until-added-v1"
-        if not await migrations.find_one({"_id": migration_id}):
-            await db.languages.update_many(
-                {"_id": {"$nin": default_codes}},
-                {
-                    "$set": {
-                        "is_active": False,
-                        "is_deleted": True,
-                        "catalog_hidden_until_added": True,
-                    }
-                },
-            )
-            await migrations.update_one(
-                {"_id": migration_id},
-                {
-                    "$setOnInsert": {
-                        "completed_at": datetime.now(timezone.utc),
-                    }
-                },
-                upsert=True,
-            )
+        await db.languages.update_many(
+            {
+                "_id": {"$nin": default_codes},
+                "catalog_hidden_until_added": {"$exists": False},
+            },
+            {
+                "$set": {
+                    "is_active": False,
+                    "is_deleted": True,
+                    "catalog_hidden_until_added": True,
+                }
+            },
+        )
 
     async def get_admin_narrations(self):
         cursor = db.translations.find({}).sort("updated_at", -1)
