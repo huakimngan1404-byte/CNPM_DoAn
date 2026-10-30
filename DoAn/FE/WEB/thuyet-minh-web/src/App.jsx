@@ -20,6 +20,7 @@ import {
   fetchActiveVisitors,
   fetchListenStats,
   fetchRecentActivity,
+  fetchWalkingRoute,
   fetchSiteNarration,
   generateSiteNarration,
   apiBaseUrl,
@@ -540,24 +541,13 @@ function Dashboard({ sites, languages, onNavigate }) {
       setRouteError('');
       setRouteResult(null);
       try {
-        const coordinates = `${Number(routeStartSite.lng)},${Number(routeStartSite.lat)};${Number(routeEndSite.lng)},${Number(routeEndSite.lat)}`;
-        const response = await fetch(
-          `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${coordinates}?overview=false&steps=false`,
-          { signal: controller.signal },
+        const result = await fetchWalkingRoute(
+          routeStartCode,
+          routeEndCode,
+          controller.signal,
         );
-        if (!response.ok) {
-          throw new Error(`Dịch vụ định tuyến trả về lỗi HTTP ${response.status}.`);
-        }
-        const data = await response.json();
-        const route = data.routes?.[0];
-        if (data.code !== 'Ok' || !route || !Number.isFinite(route.distance)) {
-          throw new Error('Không tìm được tuyến đi bộ giữa hai di tích đã chọn.');
-        }
         if (active) {
-          setRouteResult({
-            distance: route.distance,
-            duration: Number.isFinite(route.duration) ? route.duration : null,
-          });
+          setRouteResult(result);
         }
       } catch (error) {
         if (error.name === 'AbortError') return;
@@ -673,10 +663,10 @@ function Dashboard({ sites, languages, onNavigate }) {
               <div className="dashboard-route-result" role="status">
                 <div><strong>{routeStartSite.name}</strong><ArrowRight size={15} /><strong>{routeEndSite.name}</strong></div>
                 <p>
-                  Khoảng cách tuyến: <strong>{routeResult.distance >= 1000
-                    ? `${(routeResult.distance / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} km`
-                    : `${Math.round(routeResult.distance).toLocaleString('vi-VN')} m`}</strong>
-                  {routeResult.duration !== null && <> · Khoảng <strong>{Math.ceil(routeResult.duration / 60)} phút đi bộ</strong></>}
+                  Khoảng cách tuyến: <strong>{routeResult.distance_meters >= 1000
+                    ? `${(routeResult.distance_meters / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} km`
+                    : `${Math.round(routeResult.distance_meters).toLocaleString('vi-VN')} m`}</strong>
+                  {routeResult.duration_seconds !== null && <> · Khoảng <strong>{Math.ceil(routeResult.duration_seconds / 60)} phút đi bộ</strong></>}
                 </p>
               </div>
             )}

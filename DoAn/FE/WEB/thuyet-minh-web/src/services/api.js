@@ -127,7 +127,8 @@ async function requestSite(path, options = {}, requiresAdmin = false) {
       `${apiBaseUrl}${path}`,
       requiresAdmin ? withAdminToken(options) : options,
     );
-  } catch {
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
     throw new Error(`Không kết nối được Backend tại ${apiBaseUrl || 'địa chỉ proxy hiện tại'}.`);
   }
   if (requiresAdmin) await handleExpiredAdminSession(response);
@@ -172,6 +173,11 @@ export async function fetchAdminSites() {
     color: colors[index % colors.length],
     image: record.image_url || '',
   }));
+}
+
+export async function fetchWalkingRoute(fromCode, toCode, signal) {
+  const query = new URLSearchParams({ from_code: fromCode, to_code: toCode });
+  return requestSite(`/api/sites/route?${query}`, { signal }, true);
 }
 
 function validateLanguageRecords(records) {

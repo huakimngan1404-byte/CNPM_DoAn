@@ -206,6 +206,17 @@ async def get_sites():
         for site in sites
     ]
 
+@router.get("/route", dependencies=[Depends(require_admin)])
+async def get_walking_route(from_code: str, to_code: str):
+    try:
+        return await service.get_walking_route(from_code, to_code)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
 def to_site_document(data: SiteAdminForm | SiteAdminUpdate, code: str):
     return {
         "code": code,

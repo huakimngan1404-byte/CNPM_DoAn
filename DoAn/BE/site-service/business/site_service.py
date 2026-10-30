@@ -5,6 +5,7 @@ import json
 import time
 import calendar
 import re
+import httpx
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from data.site_repository import SiteRepository
@@ -205,7 +206,7 @@ class SiteService:
 
     # Yêu cầu 3.2: Thuật toán cốt lõi tính toán khoảng cách (công thức hình học không gian) tại lớp Service
     def calculate_distance(self, lat1, lon1, lat2, lon2):
-        R = 6371000 # Bán kính trái đất (mét)
+        R = 6371000
         phi1, phi2 = math.radians(lat1), math.radians(lat2)
         delta_phi = math.radians(lat2 - lat1)
         delta_lambda = math.radians(lon2 - lon1)
@@ -213,6 +214,93 @@ class SiteService:
         a = math.sin(delta_phi/2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda/2.0)**2
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return R * c # Trả về mét
+
+    async def get_walking_route(self, from_code: str, to_code: str):
+        if from_code == to_code:
+            raise ValueError("Điểm xuất phát và điểm đến phải là hai di tích khác nhau.")
+
+        origin = await self.repo.get_site_by_code(from_code)
+        destination = await self.repo.get_site_by_code(to_code)
+        if not origin or origin.get("is_hidden") is True:
+            raise LookupError(f"Không tìm thấy di tích xuất phát '{from_code}'.")
+        if not destination or destination.get("is_hidden") is True:
+            raise LookupError(f"Không tìm thấy di tích đích '{to_code}'.")
+
+        origin_coordinates = origin.get("location", {}).get("coordinates")
+        destination_coordinates = destination.get("location", {}).get("coordinates")
+        if (
+            not isinstance(origin_coordinates, list)
+            or len(origin_coordinates) != 2
+            or not isinstance(destination_coordinates, list)
+            or len(destination_coordinates) != 2
+        ):
+            raise ValueError("Di tích không có tọa độ hợp lệ để tính tuyến.")
+
+        origin_lng, origin_lat = origin_coordinates[:2]
+        destination_lng, destination_lat = destination_coordinates[:2]
+        coordinates_to_validate = (
+            (origin_lng, -180, 180),
+            (origin_lat, -90, 90),
+            (destination_lng, -180, 180),
+            (destination_lat, -90, 90),
+        )
+        if any(
+            not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < minimum
+            or value > maximum
+            for value, minimum, maximum in coordinates_to_validate
+        ):
+            raise ValueError("Di tích không có tọa độ hợp lệ để tính tuyến.")
+
+        coordinates = (
+            f"{origin_lng},{origin_lat};{destination_lng},{destination_lat}"
+        )
+        url = (
+            "https://routing.openstreetmap.de/routed-foot/route/v1/foot/"
+            f"{coordinates}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                response = await client.get(
+                    url,
+                    params={"overview": "false", "steps": "false"},
+                )
+                response.raise_for_status()
+                result = response.json()
+        except httpx.RequestError as error:
+            raise RuntimeError("Không kết nối được dịch vụ định tuyến đi bộ.") from error
+        except httpx.HTTPStatusError as error:
+            raise RuntimeError(
+                f"Dịch vụ định tuyến trả về lỗi HTTP {error.response.status_code}."
+            ) from error
+        except ValueError as error:
+            raise RuntimeError("Dịch vụ định tuyến trả về dữ liệu không hợp lệ.") from error
+
+        if not isinstance(result, dict):
+            raise RuntimeError("Dịch vụ định tuyến trả về dữ liệu không hợp lệ.")
+        routes = result.get("routes")
+        route = routes[0] if isinstance(routes, list) and routes else None
+        if result.get("code") != "Ok" or not isinstance(route, dict):
+            raise ValueError("Không tìm được tuyến đi bộ giữa hai di tích.")
+        distance = route.get("distance")
+        duration = route.get("duration")
+        if not isinstance(distance, (int, float)) or not math.isfinite(distance):
+            raise RuntimeError("Dịch vụ định tuyến không trả về khoảng cách hợp lệ.")
+
+        return {
+            "origin": {"code": from_code, "name": origin.get("name", from_code)},
+            "destination": {
+                "code": to_code,
+                "name": destination.get("name", to_code),
+            },
+            "distance_meters": round(distance, 1),
+            "duration_seconds": (
+                round(duration, 1)
+                if isinstance(duration, (int, float)) and math.isfinite(duration)
+                else None
+            ),
+        }
 
     async def process_gps(self, user_id: str, lat: float, lng: float, lang: str):
         await self.ensure_catalog_seeded()
