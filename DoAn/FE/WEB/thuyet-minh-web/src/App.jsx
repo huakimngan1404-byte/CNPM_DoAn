@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity, ArrowRight, ArrowUpRight, AudioLines, BookOpen,
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass,
-  Filter, Globe2, Headphones, LayoutDashboard, LoaderCircle, Map,
+  Filter, Globe2, Headphones, LayoutDashboard, LoaderCircle, Map, Route,
   LogOut, MapPin, Menu, MoreHorizontal, Pause, Pencil, Play, Plus, RefreshCw, Search, Settings2,
   Eye, EyeOff, ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
@@ -408,6 +408,15 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
 
 function Dashboard({ sites, languages, onNavigate }) {
   const activeLanguages = languages.filter((language) => language.is_active);
+  const routeSites = sites.filter((site) => (
+    !site.isHidden
+    && site.lat !== ''
+    && site.lat != null
+    && site.lng !== ''
+    && site.lng != null
+    && Number.isFinite(Number(site.lat))
+    && Number.isFinite(Number(site.lng))
+  ));
   const [narrationCount, setNarrationCount] = useState(null);
   const [narrationLoadError, setNarrationLoadError] = useState('');
   const [activeVisitors, setActiveVisitors] = useState(null);
@@ -422,6 +431,13 @@ function Dashboard({ sites, languages, onNavigate }) {
   });
   const [listenStats, setListenStats] = useState(null);
   const [listenError, setListenError] = useState('');
+  const [routeStartCode, setRouteStartCode] = useState('');
+  const [routeEndCode, setRouteEndCode] = useState('');
+  const [routeResult, setRouteResult] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState('');
+  const routeStartSite = routeSites.find((site) => (site.code || site.id) === routeStartCode);
+  const routeEndSite = routeSites.find((site) => (site.code || site.id) === routeEndCode);
 
   useEffect(() => {
     let active = true;
@@ -504,6 +520,70 @@ function Dashboard({ sites, languages, onNavigate }) {
     };
   }, [listenPeriod, requestedListenDate]);
 
+  useEffect(() => {
+    if (!routeStartSite || !routeEndSite) {
+      setRouteResult(null);
+      setRouteError('');
+      setRouteLoading(false);
+      return undefined;
+    }
+    if ((routeStartSite.code || routeStartSite.id) === (routeEndSite.code || routeEndSite.id)) {
+      setRouteResult(null);
+      setRouteError('Hãy chọn hai di tích khác nhau.');
+      setRouteLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const loadRoute = async () => {
+      setRouteLoading(true);
+      setRouteError('');
+      setRouteResult(null);
+      try {
+        const coordinates = `${Number(routeStartSite.lng)},${Number(routeStartSite.lat)};${Number(routeEndSite.lng)},${Number(routeEndSite.lat)}`;
+        const response = await fetch(
+          `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${coordinates}?overview=false&steps=false`,
+          { signal: controller.signal },
+        );
+        if (!response.ok) {
+          throw new Error(`Dịch vụ định tuyến trả về lỗi HTTP ${response.status}.`);
+        }
+        const data = await response.json();
+        const route = data.routes?.[0];
+        if (data.code !== 'Ok' || !route || !Number.isFinite(route.distance)) {
+          throw new Error('Không tìm được tuyến đi bộ giữa hai di tích đã chọn.');
+        }
+        if (active) {
+          setRouteResult({
+            distance: route.distance,
+            duration: Number.isFinite(route.duration) ? route.duration : null,
+          });
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        if (active) setRouteError(`Không thể tính tuyến đường: ${error.message}`);
+      } finally {
+        if (active) setRouteLoading(false);
+      }
+    };
+
+    let active = true;
+    loadRoute();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [
+    routeStartSite?.code,
+    routeStartSite?.id,
+    routeStartSite?.lat,
+    routeStartSite?.lng,
+    routeEndSite?.code,
+    routeEndSite?.id,
+    routeEndSite?.lat,
+    routeEndSite?.lng,
+  ]);
+
   const chartBuckets = listenStats?.buckets ?? [];
   const chartMaximum = Math.max(1, ...chartBuckets.map((bucket) => bucket.count));
   const chartPoints = chartBuckets.map((bucket, index) => ({
@@ -561,6 +641,47 @@ function Dashboard({ sites, languages, onNavigate }) {
             <StatCard label="Ngôn ngữ hỗ trợ" value={String(activeLanguages.length)} icon={Globe2} iconTone="green" />
           </section>
           {narrationLoadError && <div className="dashboard-data-error" role="alert">Không tải được số bài thuyết minh: {narrationLoadError}</div>}
+
+          <section className="panel dashboard-route-panel">
+            <div className="panel-heading">
+              <div><h3>Tính tuyến đường giữa hai di tích</h3><p>Tuyến đi bộ đề xuất và khoảng cách ước tính</p></div>
+              <Route size={18} aria-hidden="true" />
+            </div>
+            <div className="dashboard-route-selectors">
+              <label>Điểm xuất phát
+                <select value={routeStartCode} onChange={(event) => setRouteStartCode(event.target.value)}>
+                  <option value="">Chọn di tích 1</option>
+                  {routeSites.map((site) => {
+                    const code = site.code || site.id;
+                    return <option key={code} value={code}>{site.name}</option>;
+                  })}
+                </select>
+              </label>
+              <label>Điểm đến
+                <select value={routeEndCode} onChange={(event) => setRouteEndCode(event.target.value)}>
+                  <option value="">Chọn di tích 2</option>
+                  {routeSites.map((site) => {
+                    const code = site.code || site.id;
+                    return <option key={code} value={code} disabled={code === routeStartCode}>{site.name}</option>;
+                  })}
+                </select>
+              </label>
+            </div>
+            {routeLoading && <p className="dashboard-route-message" role="status">Đang tìm tuyến đi bộ…</p>}
+            {routeError && <p className="dashboard-route-error" role="alert">{routeError}</p>}
+            {routeResult && (
+              <div className="dashboard-route-result" role="status">
+                <div><strong>{routeStartSite.name}</strong><ArrowRight size={15} /><strong>{routeEndSite.name}</strong></div>
+                <p>
+                  Khoảng cách tuyến: <strong>{routeResult.distance >= 1000
+                    ? `${(routeResult.distance / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} km`
+                    : `${Math.round(routeResult.distance).toLocaleString('vi-VN')} m`}</strong>
+                  {routeResult.duration !== null && <> · Khoảng <strong>{Math.ceil(routeResult.duration / 60)} phút đi bộ</strong></>}
+                </p>
+              </div>
+            )}
+            {routeSites.length < 2 && <p className="dashboard-route-message">Cần ít nhất hai di tích có tọa độ hợp lệ để tính tuyến.</p>}
+          </section>
 
           <div className="panel listening-panel">
             <div className="panel-heading">
