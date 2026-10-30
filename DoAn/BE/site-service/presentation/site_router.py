@@ -38,8 +38,8 @@ class ListenEvent(BaseModel):
 class SiteAdminForm(BaseModel):
     code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     name: str = Field(min_length=2, max_length=200)
-    lat: float = Field(ge=-90, le=90)
-    lng: float = Field(ge=-180, le=180)
+    lat: float = Field(ge=0, le=90)
+    lng: float = Field(ge=0, le=180)
     address: str = Field(min_length=2, max_length=300)
     category: str = Field(min_length=2, max_length=100)
     description: str = Field(default="", max_length=20000)
@@ -47,8 +47,8 @@ class SiteAdminForm(BaseModel):
 
 class SiteAdminUpdate(BaseModel):
     name: str = Field(min_length=2, max_length=200)
-    lat: float = Field(ge=-90, le=90)
-    lng: float = Field(ge=-180, le=180)
+    lat: float = Field(ge=0, le=90)
+    lng: float = Field(ge=0, le=180)
     address: str = Field(min_length=2, max_length=300)
     category: str = Field(min_length=2, max_length=100)
     description: str = Field(min_length=10, max_length=20000)

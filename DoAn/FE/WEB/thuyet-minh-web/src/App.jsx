@@ -2057,6 +2057,14 @@ function SiteModal({ site, onClose, onSave }) {
   const [status, setStatus] = useState(site?.status ?? 'Mở cửa');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const latitudeError = lat.trim() && Number.isFinite(Number(lat))
+    && (Number(lat) < 0 || Number(lat) > 90)
+    ? 'Vĩ độ phải nằm trong khoảng 0 đến 90.'
+    : '';
+  const longitudeError = lng.trim() && Number.isFinite(Number(lng))
+    && (Number(lng) < 0 || Number(lng) > 180)
+    ? 'Kinh độ phải nằm trong khoảng 0 đến 180.'
+    : '';
 
   const submit = async (event) => {
     event.preventDefault();
@@ -2068,9 +2076,9 @@ function SiteModal({ site, onClose, onSave }) {
     }
     const latitude = Number(lat);
     const longitude = Number(lng);
-    if (!lat.trim() || !lng.trim() || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
-      || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-      setError('Tọa độ không hợp lệ. Vĩ độ từ -90 đến 90, kinh độ từ -180 đến 180.');
+    if (!lat.trim() || !lng.trim() || !Number.isFinite(latitude) || latitude < 0 || latitude > 90
+      || !Number.isFinite(longitude) || longitude < 0 || longitude > 180) {
+      setError('Tọa độ không hợp lệ. Vĩ độ từ 0 đến 90, kinh độ từ 0 đến 180.');
       return;
     }
     const siteCode = site?.code || code.trim();
@@ -2103,7 +2111,16 @@ function SiteModal({ site, onClose, onSave }) {
       <label>Tên di tích <em>*</em><input autoFocus value={name} onChange={(event) => { const value = event.target.value; setName(value); if (!site) setCode(slugify(value)); setError(''); }} placeholder="Ví dụ: Dinh Độc Lập" /></label>
       <label>Mã di tích <em>*</em><input value={code} readOnly={Boolean(site)} onChange={(event) => { setCode(event.target.value); setError(''); }} placeholder="dinh-doc-lap" /><small className="field-hint">Mã URL duy nhất, dùng chữ thường, số và dấu gạch ngang.</small></label>
       <label>Địa chỉ <em>*</em><div className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => { setAddress(event.target.value); setError(''); }} placeholder="Số nhà, tên đường..." /></div></label>
-      <div className="form-columns"><label>Vĩ độ GPS <em>*</em><input type="number" min="-90" max="90" step="any" value={lat} onChange={(event) => setLat(event.target.value)} placeholder="10.7769" /></label><label>Kinh độ GPS <em>*</em><input type="number" min="-180" max="180" step="any" value={lng} onChange={(event) => setLng(event.target.value)} placeholder="106.6952" /></label></div>
+      <div className="form-columns">
+        <label>Vĩ độ GPS <em>*</em>
+          <input type="number" min="0" max="90" step="any" value={lat} onChange={(event) => setLat(event.target.value)} placeholder="10.7769" aria-invalid={Boolean(latitudeError)} aria-describedby={latitudeError ? 'site-lat-error' : undefined} />
+          {latitudeError && <small className="coordinate-error" id="site-lat-error" role="alert">{latitudeError}</small>}
+        </label>
+        <label>Kinh độ GPS <em>*</em>
+          <input type="number" min="0" max="180" step="any" value={lng} onChange={(event) => setLng(event.target.value)} placeholder="106.6952" aria-invalid={Boolean(longitudeError)} aria-describedby={longitudeError ? 'site-lng-error' : undefined} />
+          {longitudeError && <small className="coordinate-error" id="site-lng-error" role="alert">{longitudeError}</small>}
+        </label>
+      </div>
       <div className="form-columns"><label>Loại hình<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Di tích lịch sử</option><option>Lịch sử</option><option>Kiến trúc</option><option>Bảo tàng</option><option>Văn hóa</option></select></label><label>Trạng thái<select value={status} onChange={(event) => setStatus(event.target.value)}><option>Mở cửa</option><option>Đóng cửa</option></select></label></div>
       {site && <label>Nội dung thuyết minh <em>*</em><textarea rows="4" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Nhập nội dung để hệ thống dùng cho thuyết minh và tạo audio..." /></label>}
       {error && <div className="form-error" role="alert">{error}</div>}
