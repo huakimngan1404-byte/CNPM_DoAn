@@ -57,6 +57,9 @@ class SiteAdminUpdate(BaseModel):
 class SiteGeofenceRadiusUpdate(BaseModel):
     geofence_radius: float = Field(ge=10, le=1000)
 
+class VisibilityUpdate(BaseModel):
+    is_hidden: bool
+
 class LanguageAdminForm(BaseModel):
     code: str = Field(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
     name: str = Field(min_length=1, max_length=100)
@@ -118,6 +121,14 @@ async def delete_language(code: str):
 @narration_router.get("/admin", dependencies=[Depends(require_admin)])
 async def get_admin_narrations():
     return await service.get_admin_narrations()
+
+@narration_router.patch("/{site_code}/{lang}/visibility", dependencies=[Depends(require_admin)])
+async def set_narration_visibility(site_code: str, lang: str, data: VisibilityUpdate):
+    try:
+        await service.set_narration_hidden(site_code, lang, data.is_hidden)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": "success"}
 
 @narration_router.post("/", status_code=201, dependencies=[Depends(require_admin)])
 async def create_narration(data: NarrationAdminCreate):
@@ -216,12 +227,24 @@ async def get_admin_sites():
 
 @router.get("/{code}/narration")
 async def get_site_narration(code: str, lang: str = "vi"):
+    site = await service.repo.get_site_by_code(code)
     language = await service.repo.get_language(lang)
-    if not language or language.get("is_active") is False or language.get("is_deleted") is True:
+    if (
+        not site
+        or site.get("is_hidden") is True
+        or not language
+        or language.get("is_active") is False
+        or language.get("is_deleted") is True
+    ):
         raise HTTPException(status_code=404, detail="Chưa có bài thuyết minh cho ngôn ngữ này.")
 
     narration = await service.repo.get_narration(code, lang)
-    if not narration or not narration.get("audio_asset_id") or not narration.get("audio_url"):
+    if (
+        not narration
+        or narration.get("is_hidden") is True
+        or not narration.get("audio_asset_id")
+        or not narration.get("audio_url")
+    ):
         raise HTTPException(status_code=404, detail="Chưa có bài thuyết minh cho ngôn ngữ này.")
 
     ready_audio_ids = await service.repo.get_ready_audio_asset_ids([narration])
@@ -241,6 +264,9 @@ async def generate_site_narration(
     data: NarrationGenerationRequest,
     authorization: str = Header(...),
 ):
+    site = await service.repo.get_site_by_code(code)
+    if not site or site.get("is_hidden") is True:
+        raise HTTPException(status_code=404, detail="Không tìm thấy di tích.")
     try:
         async with httpx.AsyncClient(timeout=45) as client:
             response = await client.get(
@@ -286,6 +312,13 @@ async def update_site(code: str, data: SiteAdminUpdate):
 async def update_site_geofence_radius(code: str, data: SiteGeofenceRadiusUpdate):
     try:
         return await service.update_geofence_radius(code, data.geofence_radius)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+@router.patch("/{code}/visibility", dependencies=[Depends(require_admin)])
+async def set_site_visibility(code: str, data: VisibilityUpdate):
+    try:
+        return await service.set_site_hidden(code, data.is_hidden)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
 

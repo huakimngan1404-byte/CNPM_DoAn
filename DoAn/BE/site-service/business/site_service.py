@@ -88,7 +88,7 @@ class SiteService:
         if not LANGUAGE_CODE_PATTERN.fullmatch(lang):
             raise ValueError("Mã ngôn ngữ không hợp lệ.")
         site = await self.repo.get_site_by_code(site_code)
-        if not site:
+        if not site or site.get("is_hidden") is True:
             raise LookupError("Không tìm thấy di tích.")
         language = await self.repo.get_language(lang)
         if not language or language.get("is_deleted") is True:
@@ -108,6 +108,10 @@ class SiteService:
             description.strip(),
             datetime.now(timezone.utc),
         )
+
+    async def set_narration_hidden(self, site_code: str, lang: str, is_hidden: bool):
+        if not await self.repo.set_narration_hidden(site_code, lang, is_hidden):
+            raise LookupError("Không tìm thấy bài thuyết minh.")
 
     async def delete_narration(self, site_code: str, lang: str):
         if not await self.repo.delete_narration(site_code, lang):
@@ -303,6 +307,11 @@ class SiteService:
             raise LookupError("Không tìm thấy di tích.")
         await self.repo.update_site(code, {"geofence_radius": radius})
         return {"status": "success", "geofence_radius": radius}
+
+    async def set_site_hidden(self, code: str, is_hidden: bool):
+        if not await self.repo.set_site_hidden(code, is_hidden):
+            raise LookupError("Không tìm thấy di tích.")
+        return {"status": "success"}
 
     async def delete_site(self, code: str):
         if not await self.repo.delete_site(code):

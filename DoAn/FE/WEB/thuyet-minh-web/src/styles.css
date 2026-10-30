@@ -199,11 +199,15 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .status-badge i, .summary-status i { width: 5px; height: 5px; border-radius: 50%; background: #4cb18a; }
 .status-badge.closed { color: #b07a2e; background: #fff7e9; }
 .status-badge.closed i, .summary-status .draft-summary i { background: #e6a83d; }
+.status-badge.hidden { color: #a3784c; background: #fff7e9; }
+.status-badge.hidden i { background: #e6a83d; }
 .date-cell { color: #8c939f; font-size: 8px; }
 .row-more { width: 30px; height: 30px; flex: 0 0 auto; color: #78818d; }
 .row-more:hover { border-color: #e7e9ed; color: #424a56; background: #f7f8fa; }
-.row-more.delete-action { color: #c65b4d; }
-.row-more.delete-action:hover { border-color: #f0d6d2; color: #b53f32; background: #fff5f3; }
+.row-more.hide-action { color: #c65b4d; }
+.row-more.hide-action:hover { border-color: #f0d6d2; color: #b53f32; background: #fff5f3; }
+.row-more.show-action { color: #398a6f; }
+.row-more.show-action:hover { border-color: #cde9dc; color: #28785e; background: #f1faf5; }
 .activity-panel { padding-bottom: 12px; }
 .activity-list { margin-top: 12px; }
 .activity-item { display: flex; gap: 9px; min-height: 58px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid #f0f1f3; }
@@ -267,8 +271,11 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .places-table td { height: 65px; }
 .site-row-actions { display: flex; align-items: center; gap: 3px; }
 .site-row-actions .row-more { display: grid; width: 30px; min-width: 30px; height: 30px; place-items: center; padding: 0; color: #586171; }
-.site-row-actions .delete-action { color: #c65b4d; }
-.site-row-actions .delete-action:hover { border-color: #f0d6d2; color: #b53f32; background: #fff5f3; }
+.site-row-actions .row-more.visibility-action { display: inline-flex; width: auto; min-width: 48px; align-items: center; justify-content: center; gap: 4px; padding: 0 6px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.site-row-actions .hide-action { color: #c65b4d; }
+.site-row-actions .hide-action:hover { border-color: #f0d6d2; color: #b53f32; background: #fff5f3; }
+.site-row-actions .show-action { color: #398a6f; }
+.site-row-actions .show-action:hover { border-color: #cde9dc; color: #28785e; background: #f1faf5; }
 .address-cell { color: #828a96; font-size: 9px; }
 .address-cell svg { margin-right: 4px; color: #a2a9b2; vertical-align: -2px; }
 .empty-state { display: flex; min-height: 190px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #a2a9b2; }
@@ -296,6 +303,7 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .narration-title span i { display: inline-block; width: 3px; height: 3px; margin: 0 5px 2px; border-radius: 50%; background: #c3c7cd; }
 .narration-total { margin-left: auto; color: #818995; font-size: 10px; white-space: nowrap; }
 .play-preview { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #eceef1; border-radius: 50%; color: #d85d42; background: #fff; cursor: pointer; }
+.play-preview:disabled { opacity: .4; cursor: not-allowed; }
 .narration-audio-player { display: flex; flex-direction: column; gap: 9px; margin: 0 18px 16px; padding: 12px; border: 1px solid #f0e7e2; border-radius: 8px; background: #fffcfa; }
 .narration-audio-player[hidden] { display: none; }
 .narration-audio-player strong { color: #4b535f; font-size: 10px; }
@@ -347,6 +355,7 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .language-status.is-inactive { color: #a3784c; }
 .language-actions { display: flex; gap: 4px; }
 .language-actions .icon-button { width: 30px; height: 30px; color: #798391; }
+.language-actions .language-visibility { width: auto; min-width: 30px; gap: 4px; padding: 0 7px; font-size: 10px; font-weight: 600; }
 .language-actions button:disabled { opacity: .35; cursor: not-allowed; }
 .language-error { margin: 0 19px 10px; padding: 10px 12px; border-radius: 6px; color: #a4473b; background: #fff0ed; font-size: 10px; }
 .language-empty { padding: 22px 10px; color: #89919c; font-size: 10px; text-align: center; }
@@ -552,7 +561,7 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
   .language-toolbar .table-search { width: 100%; }
   .language-status { margin-left: 0; }
   .language-actions { gap: 1px; }
-  .language-actions .icon-button { width: 26px; height: 28px; }
+  .language-actions .icon-button:not(.language-visibility) { width: 26px; height: 28px; }
   .language-error { margin-right: 14px; margin-left: 14px; }
   .map-page { display: flex; flex-direction: column; }
   .large-map { height: 48vh; min-height: 280px; }

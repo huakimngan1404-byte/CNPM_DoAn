@@ -13,8 +13,6 @@ import {
   createSite,
   createLanguage,
   createNarration,
-  deleteSite,
-  deleteNarration,
   fetchActiveLanguages,
   fetchAdminLanguages,
   fetchAdminNarrations,
@@ -29,6 +27,8 @@ import {
   leaveVisitor,
   loginAdmin,
   recordNarrationListen,
+  setSiteHidden,
+  setNarrationHidden,
   updateSite,
   updateSiteGeofenceRadius,
   updateLanguage,
@@ -259,7 +259,8 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
 
   const filteredSites = useMemo(() => sites.filter((site) => {
     const matchesQuery = `${site.name} ${site.address} ${site.category}`.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === 'Tất cả trạng thái' || site.status === statusFilter;
+    const matchesStatus = statusFilter === 'Tất cả trạng thái'
+      || (statusFilter === 'Đã ẩn' ? site.isHidden : !site.isHidden && site.status === statusFilter);
     return matchesQuery && matchesStatus;
   }), [sites, search, statusFilter]);
 
@@ -296,14 +297,18 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
     notify(editingSite ? 'Đã cập nhật di tích trong Backend.' : 'Đã thêm di tích vào Backend.');
   };
 
-  const removeSite = async (site) => {
-    if (!window.confirm(`Bạn có chắc muốn xóa "${site.name}"? Thao tác này sẽ xóa dữ liệu di tích khỏi Backend.`)) return;
+  const toggleSiteHidden = async (site) => {
+    const isHidden = !site.isHidden;
+    const action = isHidden ? 'ẩn' : 'hiện lại';
+    if (!window.confirm(`Bạn có chắc muốn ${action} "${site.name}"?`)) return;
     try {
-      await deleteSite(site.code);
-      setSites((current) => current.filter((item) => item.code !== site.code));
-      notify(`Đã xóa "${site.name}" khỏi Backend.`);
+      await setSiteHidden(site.code, isHidden);
+      setSites((current) => current.map((item) => (
+        item.code === site.code ? { ...item, isHidden } : item
+      )));
+      notify(isHidden ? `Đã ẩn "${site.name}".` : `Đã hiện lại "${site.name}".`);
     } catch (error) {
-      notify(`Không thể xóa di tích: ${error.message}`);
+      notify(`Không thể ${action} di tích: ${error.message}`);
     }
   };
 
@@ -377,7 +382,7 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
             )}
           </div>
           {activePage === 'dashboard' && <Dashboard sites={sites} languages={languages} onNavigate={setActivePage} />}
-          {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onDelete={removeSite} />}
+          {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onToggleHidden={toggleSiteHidden} />}
           {activePage === 'narrations' && <NarrationsPage notify={notify} languages={languages.filter((language) => language.is_active)} />}
           {activePage === 'languages' && <LanguagesPage languages={languages} loadError={languageLoadError} onLanguagesChange={replaceLanguages} notify={notify} />}
           {activePage === 'map' && (
@@ -829,8 +834,9 @@ function LanguagePills({ codes }) {
   return <div className="language-pills">{codes.map((code) => <span key={code} title={code}>{code}</span>)}</div>;
 }
 
-function StatusBadge({ status }) {
-  return <span className={`status-badge ${status === 'Đóng cửa' ? 'closed' : 'open'}`}><i />{status}</span>;
+function StatusBadge({ status, isHidden }) {
+  const label = isHidden ? 'Đã ẩn' : status;
+  return <span className={`status-badge ${isHidden ? 'hidden' : status === 'Đóng cửa' ? 'closed' : 'open'}`}><i />{label}</span>;
 }
 
 function ActivityItem({ icon: Icon, tone, title, description, time }) {
@@ -852,12 +858,12 @@ function formatActivityTime(value) {
   }).format(date);
 }
 
-function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setStatusFilter, onEdit, onDelete }) {
+function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setStatusFilter, onEdit, onToggleHidden }) {
   return (
     <section className="panel places-panel">
       <div className="table-toolbar">
         <div className="table-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo tên di tích, địa chỉ..." /></div>
-        <label className="filter-select"><Filter size={15} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Tất cả trạng thái</option><option>Mở cửa</option><option>Đóng cửa</option></select><ChevronDown size={14} /></label>
+        <label className="filter-select"><Filter size={15} /><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>Tất cả trạng thái</option><option>Mở cửa</option><option>Đóng cửa</option><option>Đã ẩn</option></select><ChevronDown size={14} /></label>
         <button className="button button-secondary small-button" onClick={() => setStatusFilter('Tất cả trạng thái')}><Filter size={15} /> Bộ lọc</button>
       </div>
       <div className="places-table-wrap">
@@ -866,10 +872,12 @@ function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setSta
             <td><div className="place-cell"><PlaceThumb site={site} /><div><strong>{site.name}</strong><small>{site.category}</small></div></div></td>
             <td className="address-cell"><MapPin size={13} />{site.address}</td>
             <td><LanguagePills codes={site.languages} /></td>
-            <td><StatusBadge status={site.status} /></td>
+            <td><StatusBadge status={site.status} isHidden={site.isHidden} /></td>
             <td><div className="site-row-actions">
               <button className="row-more" aria-label={`Sửa di tích ${site.name}`} title={`Sửa di tích ${site.name}`} onClick={() => onEdit(site)}><Pencil size={15} /></button>
-              <button className="row-more delete-action" aria-label={`Xóa di tích ${site.name}`} title={`Xóa di tích ${site.name}`} onClick={() => onDelete(site)}><Trash2 size={15} /></button>
+              <button className={`row-more visibility-action ${site.isHidden ? 'show-action' : 'hide-action'}`} aria-label={`${site.isHidden ? 'Hiện' : 'Ẩn'} di tích ${site.name}`} title={`${site.isHidden ? 'Hiện' : 'Ẩn'} di tích ${site.name}`} onClick={() => onToggleHidden(site)}>
+                {site.isHidden ? <><Eye size={14} /><span>Hiện</span></> : <><EyeOff size={14} /><span>Ẩn</span></>}
+              </button>
             </div></td>
           </tr>)}</tbody>
         </table>
@@ -900,7 +908,7 @@ function NarrationsPage({ notify, languages }) {
   const audioRef = useRef(null);
   const requestId = useRef(0);
   const countedNarrationIdRef = useRef('');
-  const canAddNarration = sites.some((site) => (
+  const canAddNarration = sites.some((site) => !site.isHidden && (
     languages.some((language) => !narrations.some(
       (narration) => narration.site_code === site.code && narration.lang === language.code,
     ))
@@ -972,7 +980,7 @@ function NarrationsPage({ notify, languages }) {
   }, [selectedSiteCode, sites]);
 
   const visibleNarrations = narrations
-    .filter((narration) => narration.is_active && languages.some((language) => language.code === narration.lang))
+    .filter((narration) => narration.is_hidden || (narration.is_active && languages.some((language) => language.code === narration.lang)))
     .filter((narration) => selectedLang === 'Tất cả ngôn ngữ' || narration.language_name === selectedLang)
     .filter((narration) => selectedSiteCode === 'all' || narration.site_code === selectedSiteCode)
     .filter((narration) => (
@@ -1020,24 +1028,26 @@ function NarrationsPage({ notify, languages }) {
     }
   };
 
-  const removeNarration = async (narration) => {
-    if (!window.confirm(`Xóa bài thuyết minh ${narration.site_name} · ${narration.language_name}?`)) return;
+  const toggleNarrationHidden = async (narration) => {
+    const isHidden = !narration.is_hidden;
+    const action = isHidden ? 'ẩn' : 'hiện lại';
+    if (!window.confirm(`Bạn có chắc muốn ${action} bài thuyết minh ${narration.site_name} · ${narration.language_name}?`)) return;
     try {
-      await deleteNarration(narration.site_code, narration.lang);
-      if (activeId === `${narration.site_code}-${narration.lang}`) {
+      await setNarrationHidden(narration.site_code, narration.lang, isHidden);
+      if (isHidden && activeId === `${narration.site_code}-${narration.lang}`) {
         audioRef.current?.pause();
         setAudioUrl('');
         setActiveId('');
       }
       setActionError('');
-      notify('Đã xóa bài thuyết minh.');
+      notify(isHidden ? 'Đã ẩn bài thuyết minh.' : 'Đã hiện lại bài thuyết minh.');
       try {
         await refreshNarrations();
       } catch (error) {
-        setActionError(`Đã xóa nhưng không thể tải lại danh sách: ${error.message}`);
+        setActionError(`Đã đổi trạng thái nhưng không thể tải lại danh sách: ${error.message}`);
       }
     } catch (error) {
-      setActionError(`Không thể xóa bài thuyết minh: ${error.message}`);
+      setActionError(`Không thể ${action} bài thuyết minh: ${error.message}`);
     }
   };
 
@@ -1113,13 +1123,16 @@ function NarrationsPage({ notify, languages }) {
       {actionError && <div className="language-error" role="alert">{actionError}</div>}
       <div className="narration-list">{loading ? <div className="narration-page-state">Đang tải bài thuyết minh…</div> : visibleNarrations.map((item, index) => {
         const isActive = activeId === item.id;
+        const siteIsHidden = sites.find((site) => site.code === item.site_code)?.isHidden;
         return <div className="narration-row" key={item.id}>
           <div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div>
-          <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()}</span><small>{item.description}</small></div>
-          <button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site_name}` : isActive && isPlaying ? `Tạm dừng ${item.site_name}` : `Nghe ${item.site_name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button>
+          <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()}{siteIsHidden && <em>Di tích đã ẩn</em>}{!item.is_active && <em>Ngôn ngữ đã ẩn</em>}{item.is_hidden && <em>Bài đã ẩn</em>}</span><small>{item.description}</small></div>
+          <button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site_name}` : isActive && isPlaying ? `Tạm dừng ${item.site_name}` : `Nghe ${item.site_name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id || item.is_hidden || siteIsHidden} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button>
           <div className="site-row-actions">
             <button className="row-more" aria-label={`Sửa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`Sửa ${item.site_name} · ${item.language_name}`} onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={15} /></button>
-            <button className="row-more delete-action" aria-label={`Xóa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`Xóa ${item.site_name} · ${item.language_name}`} onClick={() => removeNarration(item)}><Trash2 size={15} /></button>
+            <button className={`row-more visibility-action ${item.is_hidden ? 'show-action' : 'hide-action'}`} aria-label={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh`} onClick={() => toggleNarrationHidden(item)}>
+              {item.is_hidden ? <><Eye size={14} /><span>Hiện</span></> : <><EyeOff size={14} /><span>Ẩn</span></>}
+            </button>
           </div>
         </div>;
       })}{!loading && visibleNarrations.length === 0 && <div className="empty-state"><Search size={23} /><strong>{narrations.length ? 'Không tìm thấy bài thuyết minh' : 'Chưa có bài thuyết minh'}</strong><span>{narrations.length ? 'Thay đổi từ khóa hoặc bộ lọc để xem các bài hiện có.' : 'Thêm bài mới hoặc tạo bản dịch từ nội dung tiếng Việt.'}</span></div>}</div>
@@ -1330,7 +1343,7 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
           <span className={`language-status ${language.is_active ? 'is-active' : 'is-inactive'}`}>{language.is_active ? 'Đang hiển thị' : 'Đã ẩn'}</span>
           <div className="language-actions">
             <button className="icon-button" title="Sửa tên và biểu tượng" aria-label={`Sửa ${language.name}`} onClick={() => { setEditingLanguage(language); setIsModalOpen(true); }}><Pencil size={15} /></button>
-            <button className="icon-button" title={language.is_active ? 'Ẩn ngôn ngữ' : 'Hiện ngôn ngữ'} aria-label={`${language.is_active ? 'Ẩn' : 'Hiện'} ${language.name}`} disabled={language.code === 'vi'} onClick={() => toggleLanguage(language)}>{language.is_active ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+            <button className="icon-button language-visibility" title={language.is_active ? 'Ẩn ngôn ngữ' : 'Hiện ngôn ngữ'} aria-label={`${language.is_active ? 'Ẩn' : 'Hiện'} ${language.name}`} disabled={language.code === 'vi'} onClick={() => toggleLanguage(language)}>{language.is_active ? <span>Ẩn</span> : <Eye size={15} />}</button>
           </div>
         </div>
       ))}{filteredLanguages.length === 0 && <div className="language-empty">Không có ngôn ngữ phù hợp với bộ lọc.</div>}</div>

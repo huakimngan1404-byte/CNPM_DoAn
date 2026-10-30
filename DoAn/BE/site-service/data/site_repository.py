@@ -193,6 +193,7 @@ class SiteRepository:
                 "language_flag": languages.get(record.get("lang"), {}).get("flag", ""),
                 "is_active": languages.get(record.get("lang"), {}).get("is_active", True)
                 and not languages.get(record.get("lang"), {}).get("is_deleted", False),
+                "is_hidden": record.get("is_hidden", False),
                 "description": record.get("description", ""),
                 "updated_at": record.get("updated_at").isoformat() if record.get("updated_at") else None,
             }
@@ -226,9 +227,16 @@ class SiteRepository:
             updates.update({"audio_asset_id": None, "audio_url": None})
         await db.translations.update_one(
             {"site_code": site_code, "lang": lang},
-            {"$set": updates},
+            {"$set": updates, "$setOnInsert": {"is_hidden": False}},
             upsert=True,
         )
+
+    async def set_narration_hidden(self, site_code: str, lang: str, is_hidden: bool):
+        result = await db.translations.update_one(
+            {"site_code": site_code, "lang": lang},
+            {"$set": {"is_hidden": is_hidden}},
+        )
+        return result.matched_count > 0
 
     async def delete_narration(self, site_code: str, lang: str):
         result = await db.translations.delete_one({"site_code": site_code, "lang": lang})
@@ -350,7 +358,7 @@ class SiteRepository:
 
     async def get_all_sites(self):
         # Lấy tất cả các điểm tham quan để lớp Service tính Geofencing
-        cursor = db.sites.find({})
+        cursor = db.sites.find({"is_hidden": {"$ne": True}})
         return [doc async for doc in cursor]
 
     async def get_admin_sites(self):
@@ -383,6 +391,7 @@ class SiteRepository:
                     languages_by_site.setdefault(site_code, set()).add(language)
 
         for site in sites:
+            site["is_hidden"] = site.get("is_hidden", False)
             site["languages"] = sorted(
                 languages_by_site.get(site.get("code"), set()),
                 key=lambda language: (language != "vi", language),
@@ -397,6 +406,13 @@ class SiteRepository:
 
     async def update_site(self, code: str, site_data: dict):
         return await db.sites.update_one({"code": code}, {"$set": site_data})
+
+    async def set_site_hidden(self, code: str, is_hidden: bool):
+        result = await db.sites.update_one(
+            {"code": code},
+            {"$set": {"is_hidden": is_hidden}},
+        )
+        return result.matched_count > 0
 
     async def delete_site(self, code: str):
         site = await db.sites.find_one({"code": code}, {"_id": 1})

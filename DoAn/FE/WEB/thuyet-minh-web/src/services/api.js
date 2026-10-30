@@ -162,6 +162,7 @@ export async function fetchAdminSites() {
     lat: record.lat ?? record.location?.coordinates?.[1] ?? '',
     lng: record.lng ?? record.location?.coordinates?.[0] ?? '',
     isActive: record.is_active !== false,
+    isHidden: record.is_hidden === true,
     languages: Array.isArray(record.languages)
       ? record.languages
         .filter((language) => typeof language === 'string')
@@ -230,7 +231,10 @@ export async function fetchAdminNarrations() {
   ))) {
     throw new Error('Backend trả về danh sách bài thuyết minh không hợp lệ.');
   }
-  return records;
+  return records.map((narration) => ({
+    ...narration,
+    is_hidden: narration.is_hidden === true,
+  }));
 }
 
 export async function createNarration(narration) {
@@ -253,9 +257,11 @@ export async function updateNarration(siteCode, lang, description) {
   }, true);
 }
 
-export async function deleteNarration(siteCode, lang) {
-  return requestSite(`/api/narrations/${encodeURIComponent(siteCode)}/${encodeURIComponent(lang)}`, {
-    method: 'DELETE',
+export async function setNarrationHidden(siteCode, lang, isHidden) {
+  return requestSite(`/api/narrations/${encodeURIComponent(siteCode)}/${encodeURIComponent(lang)}/visibility`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_hidden: isHidden }),
   }, true);
 }
 
@@ -334,9 +340,11 @@ export async function updateSiteGeofenceRadius(code, radius) {
   }, true);
 }
 
-export async function deleteSite(code) {
-  return requestSite(`/api/sites/${encodeURIComponent(code)}`, {
-    method: 'DELETE',
+export async function setSiteHidden(code, isHidden) {
+  return requestSite(`/api/sites/${encodeURIComponent(code)}/visibility`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_hidden: isHidden }),
   }, true);
 }
 
