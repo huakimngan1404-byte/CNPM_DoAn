@@ -4,7 +4,7 @@ import {
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass,
   Filter, Globe2, Headphones, LayoutDashboard, LoaderCircle, Map, Route,
   LogOut, MapPin, Menu, MoreHorizontal, Pause, Pencil, Play, Plus, RefreshCw, Search, Settings2,
-  ShieldCheck, Sparkles, Trash2, X,
+  Sparkles, Trash2, X,
 } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import { initialSites, languages as initialLanguages } from './data.js';
@@ -1868,12 +1868,6 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
     </section>
     <section className="gps-side">
       <div className="panel gps-status-panel">
-        <div className="gps-status-head">
-          <span className="gps-icon"><ShieldCheck size={19} /></span>
-          <span className={`gps-online ${gpsWatching ? '' : 'gps-offline'}`}>
-            <i /> {gpsWatching ? 'ĐANG THEO DÕI' : 'GPS TẮT'}
-          </span>
-        </div>
         <h3>GPS & Geofence</h3>
         <p>{currentLocation
           ? `Tọa độ GPS: ${currentLocation.latitude.toFixed(6)}, ${currentLocation.longitude.toFixed(6)} · sai số ${Math.round(currentLocation.accuracy)} m.`
@@ -1921,16 +1915,6 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
               <label htmlFor="geofence-radius">Bán kính geofence</label>
               <strong>{radiusIsValid ? numericRadiusDraft : '—'} <small>mét</small></strong>
             </div>
-            <input
-              id="geofence-radius"
-              type="range"
-              min="10"
-              max="1000"
-              step="1"
-              value={radiusIsValid ? numericRadiusDraft : 10}
-              onChange={(event) => setRadiusDraft(event.target.value)}
-              disabled={savingRadius}
-            />
             <div className="radius-input-row">
               <input
                 type="number"
@@ -1953,18 +1937,6 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
             <p>Bán kính được lưu theo từng di tích và đồng bộ với ứng dụng.</p>
           </div>
           <div className="simulation-controls">
-            <label className="simulation-language">
-              <span>Ngôn ngữ thuyết minh</span>
-              <select
-                value={selectedLanguage}
-                onChange={(event) => setSelectedLanguage(event.target.value)}
-                disabled={!languages.length || simulationLoading}
-              >
-                {languages.map((language) => (
-                  <option key={language.code} value={language.code}>{language.name}</option>
-                ))}
-              </select>
-            </label>
             <button
               className="button button-secondary small-button"
               onClick={simulation?.status === 'walking' ? stopSimulation
