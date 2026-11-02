@@ -7,6 +7,7 @@ import {
   Popup,
   TileLayer,
   useMap,
+  useMapEvents,
 } from 'react-leaflet';
 
 const DEFAULT_CENTER = [10.7769, 106.7009];
@@ -14,6 +15,7 @@ const DEFAULT_CENTER = [10.7769, 106.7009];
 function MapViewport({
   points,
   fitAllRequest,
+  initialCenter,
   gpsFocusRequest,
   gpsFocusLocation,
   routeFocusRequest,
@@ -23,12 +25,14 @@ function MapViewport({
 
   useEffect(() => {
     map.invalidateSize();
-    if (points.length === 1) {
+    if (initialCenter) {
+      map.setView(initialCenter, 15);
+    } else if (points.length === 1) {
       map.setView(points[0], 15);
     } else if (points.length > 1) {
       map.fitBounds(points, { padding: [32, 32], maxZoom: 16 });
     }
-  }, [map, points]);
+  }, [initialCenter, map, points]);
 
   useEffect(() => {
     if (fitAllRequest > 0 && points.length) {
@@ -52,6 +56,15 @@ function MapViewport({
   return null;
 }
 
+function LocationPicker({ onLocationPick }) {
+  useMapEvents({
+    click(event) {
+      onLocationPick({ latitude: event.latlng.lat, longitude: event.latlng.lng });
+    },
+  });
+  return null;
+}
+
 export default function SiteMap({
   sites,
   currentLocation,
@@ -63,6 +76,9 @@ export default function SiteMap({
   gpsFocusRequest,
   gpsFocusLocation,
   routeFocusRequest,
+  initialCenter,
+  draftLocation,
+  onLocationPick,
 }) {
   const points = useMemo(
     () => sites.map(({ lat, lng }) => [Number(lat), Number(lng)]),
@@ -87,14 +103,16 @@ export default function SiteMap({
       <MapViewport
         points={points}
         fitAllRequest={fitAllRequest}
+        initialCenter={initialCenter}
         gpsFocusRequest={gpsFocusRequest}
         gpsFocusLocation={gpsFocusLocation}
         routeFocusRequest={routeFocusRequest}
         routeCoordinates={routeCoordinates}
       />
+      {onLocationPick && <LocationPicker onLocationPick={onLocationPick} />}
       {sites.map((site, index) => {
         const point = points[index];
-        const isSelected = selectedSiteCode === site.code;
+        const isSelected = selectedSiteCode === (site.code ?? site.id);
         const color = isSelected ? '#4285f4' : site.isActive ? '#27845a' : '#e16b45';
         return (
           <Fragment key={site.code ?? site.id}>
@@ -132,6 +150,15 @@ export default function SiteMap({
           </Fragment>
         );
       })}
+      {draftLocation && (
+        <CircleMarker
+          center={[draftLocation.latitude, draftLocation.longitude]}
+          radius={10}
+          pathOptions={{ color: '#fff', weight: 3, fillColor: '#e9593b', fillOpacity: 1 }}
+        >
+          <Popup>Vị trí đã chọn: {draftLocation.latitude.toFixed(6)}, {draftLocation.longitude.toFixed(6)}</Popup>
+        </CircleMarker>
+      )}
       {routeCoordinates?.length > 1 && (
         <Polyline
           positions={routeCoordinates.map(([longitude, latitude]) => [latitude, longitude])}

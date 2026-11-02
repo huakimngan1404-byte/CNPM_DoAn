@@ -4,7 +4,7 @@ import {
   Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Compass,
   Filter, Globe2, Headphones, LayoutDashboard, LoaderCircle, Map, Route,
   LogOut, MapPin, Menu, MoreHorizontal, Pause, Pencil, Play, Plus, RefreshCw, Search, Settings2,
-  Eye, EyeOff, ShieldCheck, Sparkles, Trash2, X,
+  ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import { initialSites, languages as initialLanguages } from './data.js';
@@ -401,7 +401,7 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
         <footer className="footer"><span>© 2026 Di Tích Q1</span><span>Hệ thống thuyết minh di tích lịch sử Quận 1</span><span className="system-status"><i /> {backendStatus === 'connected' ? 'Đã kết nối Backend' : backendStatus === 'offline' ? 'Đang dùng dữ liệu mẫu · Backend chưa kết nối' : 'Đang kết nối Backend…'}</span></footer>
       </main>
 
-      {isModalOpen && <SiteModal site={editingSite} onClose={() => setIsModalOpen(false)} onSave={saveSite} />}
+      {isModalOpen && <SiteModal site={editingSite} sites={sites} onClose={() => setIsModalOpen(false)} onSave={saveSite} />}
       {toast && <div className="toast"><span className="toast-check"><Check size={15} /></span>{toast}</div>}
     </div>
   );
@@ -409,15 +409,6 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
 
 function Dashboard({ sites, languages, onNavigate }) {
   const activeLanguages = languages.filter((language) => language.is_active);
-  const routeSites = sites.filter((site) => (
-    !site.isHidden
-    && site.lat !== ''
-    && site.lat != null
-    && site.lng !== ''
-    && site.lng != null
-    && Number.isFinite(Number(site.lat))
-    && Number.isFinite(Number(site.lng))
-  ));
   const [narrationCount, setNarrationCount] = useState(null);
   const [narrationLoadError, setNarrationLoadError] = useState('');
   const [activeVisitors, setActiveVisitors] = useState(null);
@@ -432,13 +423,6 @@ function Dashboard({ sites, languages, onNavigate }) {
   });
   const [listenStats, setListenStats] = useState(null);
   const [listenError, setListenError] = useState('');
-  const [routeStartCode, setRouteStartCode] = useState('');
-  const [routeEndCode, setRouteEndCode] = useState('');
-  const [routeResult, setRouteResult] = useState(null);
-  const [routeLoading, setRouteLoading] = useState(false);
-  const [routeError, setRouteError] = useState('');
-  const routeStartSite = routeSites.find((site) => (site.code || site.id) === routeStartCode);
-  const routeEndSite = routeSites.find((site) => (site.code || site.id) === routeEndCode);
 
   useEffect(() => {
     let active = true;
@@ -521,59 +505,6 @@ function Dashboard({ sites, languages, onNavigate }) {
     };
   }, [listenPeriod, requestedListenDate]);
 
-  useEffect(() => {
-    if (!routeStartSite || !routeEndSite) {
-      setRouteResult(null);
-      setRouteError('');
-      setRouteLoading(false);
-      return undefined;
-    }
-    if ((routeStartSite.code || routeStartSite.id) === (routeEndSite.code || routeEndSite.id)) {
-      setRouteResult(null);
-      setRouteError('Hãy chọn hai di tích khác nhau.');
-      setRouteLoading(false);
-      return undefined;
-    }
-
-    const controller = new AbortController();
-    const loadRoute = async () => {
-      setRouteLoading(true);
-      setRouteError('');
-      setRouteResult(null);
-      try {
-        const result = await fetchWalkingRoute(
-          routeStartCode,
-          routeEndCode,
-          controller.signal,
-        );
-        if (active) {
-          setRouteResult(result);
-        }
-      } catch (error) {
-        if (error.name === 'AbortError') return;
-        if (active) setRouteError(`Không thể tính tuyến đường: ${error.message}`);
-      } finally {
-        if (active) setRouteLoading(false);
-      }
-    };
-
-    let active = true;
-    loadRoute();
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [
-    routeStartSite?.code,
-    routeStartSite?.id,
-    routeStartSite?.lat,
-    routeStartSite?.lng,
-    routeEndSite?.code,
-    routeEndSite?.id,
-    routeEndSite?.lat,
-    routeEndSite?.lng,
-  ]);
-
   const chartBuckets = listenStats?.buckets ?? [];
   const chartMaximum = Math.max(1, ...chartBuckets.map((bucket) => bucket.count));
   const chartPoints = chartBuckets.map((bucket, index) => ({
@@ -631,47 +562,6 @@ function Dashboard({ sites, languages, onNavigate }) {
             <StatCard label="Ngôn ngữ hỗ trợ" value={String(activeLanguages.length)} icon={Globe2} iconTone="green" />
           </section>
           {narrationLoadError && <div className="dashboard-data-error" role="alert">Không tải được số bài thuyết minh: {narrationLoadError}</div>}
-
-          <section className="panel dashboard-route-panel">
-            <div className="panel-heading">
-              <div><h3>Tính tuyến đường giữa hai di tích</h3><p>Tuyến đi bộ đề xuất và khoảng cách ước tính</p></div>
-              <Route size={18} aria-hidden="true" />
-            </div>
-            <div className="dashboard-route-selectors">
-              <label>Điểm xuất phát
-                <select value={routeStartCode} onChange={(event) => setRouteStartCode(event.target.value)}>
-                  <option value="">Chọn di tích 1</option>
-                  {routeSites.map((site) => {
-                    const code = site.code || site.id;
-                    return <option key={code} value={code}>{site.name}</option>;
-                  })}
-                </select>
-              </label>
-              <label>Điểm đến
-                <select value={routeEndCode} onChange={(event) => setRouteEndCode(event.target.value)}>
-                  <option value="">Chọn di tích 2</option>
-                  {routeSites.map((site) => {
-                    const code = site.code || site.id;
-                    return <option key={code} value={code} disabled={code === routeStartCode}>{site.name}</option>;
-                  })}
-                </select>
-              </label>
-            </div>
-            {routeLoading && <p className="dashboard-route-message" role="status">Đang tìm tuyến đi bộ…</p>}
-            {routeError && <p className="dashboard-route-error" role="alert">{routeError}</p>}
-            {routeResult && (
-              <div className="dashboard-route-result" role="status">
-                <div><strong>{routeStartSite.name}</strong><ArrowRight size={15} /><strong>{routeEndSite.name}</strong></div>
-                <p>
-                  Khoảng cách tuyến: <strong>{routeResult.distance_meters >= 1000
-                    ? `${(routeResult.distance_meters / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} km`
-                    : `${Math.round(routeResult.distance_meters).toLocaleString('vi-VN')} m`}</strong>
-                  {routeResult.duration_seconds !== null && <> · Khoảng <strong>{Math.ceil(routeResult.duration_seconds / 60)} phút đi bộ</strong></>}
-                </p>
-              </div>
-            )}
-            {routeSites.length < 2 && <p className="dashboard-route-message">Cần ít nhất hai di tích có tọa độ hợp lệ để tính tuyến.</p>}
-          </section>
 
           <div className="panel listening-panel">
             <div className="panel-heading">
@@ -987,7 +877,7 @@ function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setSta
             <td><div className="site-row-actions">
               <button className="row-more" aria-label={`Sửa di tích ${site.name}`} title={`Sửa di tích ${site.name}`} onClick={() => onEdit(site)}><Pencil size={15} /></button>
               <button className={`row-more visibility-action ${site.isHidden ? 'show-action' : 'hide-action'}`} aria-label={`${site.isHidden ? 'Hiện' : 'Ẩn'} di tích ${site.name}`} title={`${site.isHidden ? 'Hiện' : 'Ẩn'} di tích ${site.name}`} onClick={() => onToggleHidden(site)}>
-                {site.isHidden ? <><Eye size={14} /><span>Hiện</span></> : <><EyeOff size={14} /><span>Ẩn</span></>}
+                <span>{site.isHidden ? 'Hiện' : 'Ẩn'}</span>
               </button>
             </div></td>
           </tr>)}</tbody>
@@ -1242,7 +1132,7 @@ function NarrationsPage({ notify, languages }) {
           <div className="site-row-actions">
             <button className="row-more" aria-label={`Sửa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`Sửa ${item.site_name} · ${item.language_name}`} onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={15} /></button>
             <button className={`row-more visibility-action ${item.is_hidden ? 'show-action' : 'hide-action'}`} aria-label={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh`} onClick={() => toggleNarrationHidden(item)}>
-              {item.is_hidden ? <><Eye size={14} /><span>Hiện</span></> : <><EyeOff size={14} /><span>Ẩn</span></>}
+              <span>{item.is_hidden ? 'Hiện' : 'Ẩn'}</span>
             </button>
           </div>
         </div>;
@@ -1454,7 +1344,7 @@ function LanguagesPage({ languages, loadError, onLanguagesChange, notify }) {
           <span className={`language-status ${language.is_active ? 'is-active' : 'is-inactive'}`}>{language.is_active ? 'Đang hiển thị' : 'Đã ẩn'}</span>
           <div className="language-actions">
             <button className="icon-button" title="Sửa tên và biểu tượng" aria-label={`Sửa ${language.name}`} onClick={() => { setEditingLanguage(language); setIsModalOpen(true); }}><Pencil size={15} /></button>
-            <button className="icon-button language-visibility" title={language.is_active ? 'Ẩn ngôn ngữ' : 'Hiện ngôn ngữ'} aria-label={`${language.is_active ? 'Ẩn' : 'Hiện'} ${language.name}`} disabled={language.code === 'vi'} onClick={() => toggleLanguage(language)}>{language.is_active ? <span>Ẩn</span> : <Eye size={15} />}</button>
+            <button className="icon-button language-visibility" title={language.is_active ? 'Ẩn ngôn ngữ' : 'Hiện ngôn ngữ'} aria-label={`${language.is_active ? 'Ẩn' : 'Hiện'} ${language.name}`} disabled={language.code === 'vi'} onClick={() => toggleLanguage(language)}><span>{language.is_active ? 'Ẩn' : 'Hiện'}</span></button>
           </div>
         </div>
       ))}{filteredLanguages.length === 0 && <div className="language-empty">Không có ngôn ngữ phù hợp với bộ lọc.</div>}</div>
@@ -1595,9 +1485,16 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
   const [currentLocation, setCurrentLocation] = useState(null);
   const [gpsWatching, setGpsWatching] = useState(false);
   const [selectedSiteCode, setSelectedSiteCode] = useState('');
+  const [siteSearch, setSiteSearch] = useState('');
+  const [showSiteSearchResults, setShowSiteSearchResults] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('vi');
-  const [radiusDraft, setRadiusDraft] = useState(100);
+  const [radiusDraft, setRadiusDraft] = useState('100');
   const [savingRadius, setSavingRadius] = useState(false);
+  const [routeStartCode, setRouteStartCode] = useState('');
+  const [routeEndCode, setRouteEndCode] = useState('');
+  const [routeResult, setRouteResult] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState('');
   const [fitAllRequest, setFitAllRequest] = useState(0);
   const [gpsFocusRequest, setGpsFocusRequest] = useState(0);
   const [gpsFocusLocation, setGpsFocusLocation] = useState(null);
@@ -1622,9 +1519,19 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
       ? [{ ...site, lat, lng, radius: Number(site.radius) || 100 }]
       : [];
   }), [sites]);
-  const selectedSite = mappedSites.find((site) => site.code === selectedSiteCode)
+  const selectedSite = mappedSites.find((site) => (site.code || site.id) === selectedSiteCode)
     ?? mappedSites[0]
     ?? null;
+  const routeSites = mappedSites.filter((site) => !site.isHidden);
+  const routeStartSite = routeSites.find((site) => (site.code || site.id) === routeStartCode);
+  const routeEndSite = routeSites.find((site) => (site.code || site.id) === routeEndCode);
+  const filteredSiteSearch = mappedSites.filter((site) => (
+    site.name.toLocaleLowerCase('vi').includes(siteSearch.trim().toLocaleLowerCase('vi'))
+  ));
+  const numericRadiusDraft = radiusDraft.trim() ? Number(radiusDraft) : Number.NaN;
+  const radiusIsValid = Number.isFinite(numericRadiusDraft)
+    && numericRadiusDraft >= 10
+    && numericRadiusDraft <= 1000;
   const selectedLanguageName = languages.find(
     (language) => language.code === selectedLanguage,
   )?.name ?? selectedLanguage;
@@ -1637,8 +1544,57 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
     : null;
 
   useEffect(() => {
-    setRadiusDraft(Number(selectedSite?.radius ?? 100));
+    setRadiusDraft(String(selectedSite?.radius ?? 100));
+    setSiteSearch(selectedSite?.name ?? '');
   }, [selectedSite]);
+
+  useEffect(() => {
+    if (!routeStartSite || !routeEndSite) {
+      setRouteResult(null);
+      setRouteError('');
+      setRouteLoading(false);
+      return undefined;
+    }
+    if ((routeStartSite.code || routeStartSite.id) === (routeEndSite.code || routeEndSite.id)) {
+      setRouteResult(null);
+      setRouteError('Hãy chọn hai di tích khác nhau.');
+      setRouteLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+    const loadRoute = async () => {
+      setRouteLoading(true);
+      setRouteError('');
+      setRouteResult(null);
+      try {
+        const result = await fetchWalkingRoute(routeStartCode, routeEndCode, controller.signal);
+        if (active) setRouteResult(result);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        if (active) setRouteError(`Không thể tính tuyến đường: ${error.message}`);
+      } finally {
+        if (active) setRouteLoading(false);
+      }
+    };
+    loadRoute();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [
+    routeStartSite?.code,
+    routeStartSite?.id,
+    routeStartSite?.lat,
+    routeStartSite?.lng,
+    routeEndSite?.code,
+    routeEndSite?.id,
+    routeEndSite?.lat,
+    routeEndSite?.lng,
+    routeStartCode,
+    routeEndCode,
+  ]);
 
   useEffect(() => {
     if (languages.length && !languages.some((language) => language.code === selectedLanguage)) {
@@ -1758,12 +1714,16 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
 
   const saveRadius = async () => {
     if (!selectedSite?.code) return;
+    if (!radiusIsValid) {
+      notify('Bán kính geofence phải từ 10 đến 1000 mét.');
+      return;
+    }
     setSavingRadius(true);
     try {
-      const result = await updateSiteGeofenceRadius(selectedSite.code, radiusDraft);
+      const result = await updateSiteGeofenceRadius(selectedSite.code, numericRadiusDraft);
       const savedRadius = Number(result.geofence_radius);
       onSiteRadiusChange(selectedSite.code, savedRadius);
-      setRadiusDraft(savedRadius);
+      setRadiusDraft(String(savedRadius));
       notify(`Đã lưu bán kính ${savedRadius} m cho "${selectedSite.name}".`);
     } catch (error) {
       notify(`Không thể lưu bán kính: ${error.message}`);
@@ -1782,6 +1742,10 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
 
   const startSimulation = async () => {
     if (!selectedSite?.code) return;
+    if (!radiusIsValid) {
+      notify('Bán kính geofence phải từ 10 đến 1000 mét.');
+      return;
+    }
     resetSimulationAudio();
     setSimulationLoading(true);
     setSimulationError('');
@@ -1791,7 +1755,7 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
         (sum, character) => sum + character.charCodeAt(0), 0,
       );
       const bearing = seed * Math.PI / 180;
-      const distanceFromSite = Math.max(150, radiusDraft + 75);
+      const distanceFromSite = Math.max(150, numericRadiusDraft + 75);
       const origin = {
         latitude: selectedSite.lat + (distanceFromSite * Math.cos(bearing)) / 111320,
         longitude: selectedSite.lng + (distanceFromSite * Math.sin(bearing))
@@ -1813,7 +1777,7 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
           || !coordinate.slice(0, 2).every(Number.isFinite))) {
         throw new Error('Không tìm được tuyến đi bộ đến di tích này.');
       }
-      const coordinates = routeToGeofence(fullCoordinates, selectedSite, radiusDraft);
+      const coordinates = routeToGeofence(fullCoordinates, selectedSite, numericRadiusDraft);
       if (!coordinates || coordinates.length < 2) {
         throw new Error('Không tìm được tuyến đi bộ từ ngoài vào geofence của di tích.');
       }
@@ -1852,7 +1816,9 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
 
   const selectSite = (site) => {
     resetSimulationAudio();
-    setSelectedSiteCode(site.code);
+    setSelectedSiteCode(site.code || site.id);
+    setSiteSearch(site.name);
+    setShowSiteSearchResults(false);
     setSimulation(null);
     setSimulationError('');
   };
@@ -1864,7 +1830,8 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
   };
 
   const radiusIsDirty = selectedSite
-    && radiusDraft !== Number(selectedSite.radius ?? 100);
+    && radiusIsValid
+    && numericRadiusDraft !== Number(selectedSite.radius ?? 100);
 
   return <div className="map-page">
     <section className="panel map-large-panel">
@@ -1889,7 +1856,7 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
       <SiteMap
         sites={mappedSites}
         currentLocation={currentLocation}
-        selectedSiteCode={selectedSite?.code}
+        selectedSiteCode={selectedSite ? selectedSite.code ?? selectedSite.id : undefined}
         onSelectSite={selectSite}
         simulationLocation={simulationLocation}
         routeCoordinates={simulation?.coordinates}
@@ -1911,6 +1878,38 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
         <p>{currentLocation
           ? `Tọa độ GPS: ${currentLocation.latitude.toFixed(6)}, ${currentLocation.longitude.toFixed(6)} · sai số ${Math.round(currentLocation.accuracy)} m.`
           : 'Bật định vị để xem tọa độ hiện tại và vị trí của bạn trên bản đồ.'}</p>
+        <label className="map-site-search">
+          <span>Tìm di tích để chỉnh bán kính</span>
+          <span className="table-search"><Search size={15} /><input
+            type="search"
+            value={siteSearch}
+            onFocus={() => setShowSiteSearchResults(true)}
+            onChange={(event) => {
+              setSiteSearch(event.target.value);
+              setShowSiteSearchResults(true);
+            }}
+            placeholder="Nhập tên di tích..."
+            aria-label="Tìm di tích để chỉnh bán kính geofence"
+          /></span>
+        </label>
+        {showSiteSearchResults && (
+          <div className="map-site-search-results" role="listbox" aria-label="Kết quả tìm di tích">
+            {filteredSiteSearch.length
+              ? filteredSiteSearch.map((site) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={(selectedSite?.code ?? selectedSite?.id) === (site.code ?? site.id)}
+                  key={site.code || site.id}
+                  onClick={() => selectSite(site)}
+                >
+                  <span>{site.name}</span>
+                  <small>{Number(site.radius ?? 100)} m</small>
+                </button>
+              ))
+              : <p>Không tìm thấy di tích có tọa độ.</p>}
+          </div>
+        )}
         {selectedSite ? <>
           <div className="map-site-details">
             <strong>{selectedSite.name}</strong>
@@ -1920,16 +1919,16 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
           <div className="radius-setting">
             <div className="radius-setting-heading">
               <label htmlFor="geofence-radius">Bán kính geofence</label>
-              <strong>{radiusDraft} <small>mét</small></strong>
+              <strong>{radiusIsValid ? numericRadiusDraft : '—'} <small>mét</small></strong>
             </div>
             <input
               id="geofence-radius"
               type="range"
               min="10"
               max="1000"
-              step="10"
-              value={radiusDraft}
-              onChange={(event) => setRadiusDraft(Number(event.target.value))}
+              step="1"
+              value={radiusIsValid ? numericRadiusDraft : 10}
+              onChange={(event) => setRadiusDraft(event.target.value)}
               disabled={savingRadius}
             />
             <div className="radius-input-row">
@@ -1937,19 +1936,16 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
                 type="number"
                 min="10"
                 max="1000"
-                step="10"
+                step="1"
                 value={radiusDraft}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (Number.isFinite(value)) setRadiusDraft(Math.min(1000, Math.max(10, value)));
-                }}
+                onChange={(event) => setRadiusDraft(event.target.value)}
                 aria-label="Nhập bán kính geofence theo mét"
                 disabled={savingRadius}
               />
               <button
                 className="button button-primary small-button"
                 onClick={saveRadius}
-                disabled={!radiusIsDirty || savingRadius}
+                disabled={!radiusIsDirty || !radiusIsValid || savingRadius}
               >
                 {savingRadius ? 'Đang lưu…' : 'Lưu bán kính'}
               </button>
@@ -1973,7 +1969,7 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
               className="button button-secondary small-button"
               onClick={simulation?.status === 'walking' ? stopSimulation
                 : simulation?.status === 'arrived' ? stopSimulation : startSimulation}
-              disabled={simulationLoading}
+              disabled={simulationLoading || !radiusIsValid}
             >
               {simulationLoading
                 ? 'Đang tìm đường…'
@@ -2021,6 +2017,46 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
             </div>
           )}
         </> : <p className="map-empty-inline">Chọn di tích có tọa độ trên bản đồ để chỉnh bán kính và chạy mô phỏng.</p>}
+      </div>
+      <div className="panel dashboard-route-panel map-route-panel">
+        <div className="panel-heading">
+          <div><h3>Tính quãng đường</h3><p>Tuyến đi bộ giữa hai di tích</p></div>
+          <Route size={18} aria-hidden="true" />
+        </div>
+        <div className="dashboard-route-selectors">
+          <label>Điểm xuất phát
+            <select value={routeStartCode} onChange={(event) => setRouteStartCode(event.target.value)}>
+              <option value="">Chọn di tích 1</option>
+              {routeSites.map((site) => {
+                const code = site.code || site.id;
+                return <option key={code} value={code}>{site.name}</option>;
+              })}
+            </select>
+          </label>
+          <label>Điểm đến
+            <select value={routeEndCode} onChange={(event) => setRouteEndCode(event.target.value)}>
+              <option value="">Chọn di tích 2</option>
+              {routeSites.map((site) => {
+                const code = site.code || site.id;
+                return <option key={code} value={code} disabled={code === routeStartCode}>{site.name}</option>;
+              })}
+            </select>
+          </label>
+        </div>
+        {routeLoading && <p className="dashboard-route-message" role="status">Đang tìm tuyến đi bộ…</p>}
+        {routeError && <p className="dashboard-route-error" role="alert">{routeError}</p>}
+        {routeResult && routeStartSite && routeEndSite && (
+          <div className="dashboard-route-result" role="status">
+            <div><strong>{routeStartSite.name}</strong><ArrowRight size={15} /><strong>{routeEndSite.name}</strong></div>
+            <p>
+              Khoảng cách tuyến: <strong>{routeResult.distance_meters >= 1000
+                ? `${(routeResult.distance_meters / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} km`
+                : `${Math.round(routeResult.distance_meters).toLocaleString('vi-VN')} m`}</strong>
+              {routeResult.duration_seconds !== null && <> · Khoảng <strong>{Math.ceil(routeResult.duration_seconds / 60)} phút đi bộ</strong></>}
+            </p>
+          </div>
+        )}
+        {routeSites.length < 2 && <p className="dashboard-route-message">Cần ít nhất hai di tích có tọa độ hợp lệ để tính tuyến.</p>}
       </div>
     </section>
   </div>;
@@ -2157,7 +2193,7 @@ function SettingsPage({ account, onAccountUpdate, notify, authRequired }) {
   );
 }
 
-function SiteModal({ site, onClose, onSave }) {
+function SiteModal({ site, sites, onClose, onSave }) {
   const [name, setName] = useState(site?.name ?? '');
   const [code, setCode] = useState(site?.code ?? '');
   const [address, setAddress] = useState(site?.address ?? '');
@@ -2169,13 +2205,29 @@ function SiteModal({ site, onClose, onSave }) {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const latitudeError = lat.trim() && Number.isFinite(Number(lat))
-    && (Number(lat) < 0 || Number(lat) > 90)
-    ? 'Vĩ độ phải nằm trong khoảng 0 đến 90.'
+    && (Number(lat) < -90 || Number(lat) > 90)
+    ? 'Vĩ độ phải nằm trong khoảng -90 đến 90.'
     : '';
   const longitudeError = lng.trim() && Number.isFinite(Number(lng))
-    && (Number(lng) < 0 || Number(lng) > 180)
-    ? 'Kinh độ phải nằm trong khoảng 0 đến 180.'
+    && (Number(lng) < -180 || Number(lng) > 180)
+    ? 'Kinh độ phải nằm trong khoảng -180 đến 180.'
     : '';
+  const coordinateSites = useMemo(() => sites.flatMap((item) => {
+    const rawLat = item.lat ?? item.location?.coordinates?.[1];
+    const rawLng = item.lng ?? item.location?.coordinates?.[0];
+    const latitude = rawLat === '' || rawLat == null ? Number.NaN : Number(rawLat);
+    const longitude = rawLng === '' || rawLng == null ? Number.NaN : Number(rawLng);
+    return Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+      && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180
+      ? [{ ...item, lat: latitude, lng: longitude, radius: Number(item.radius) || 100 }]
+      : [];
+  }), [sites]);
+  const draftLocation = lat.trim() && lng.trim()
+    && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
+    && Number(lat) >= -90 && Number(lat) <= 90
+    && Number(lng) >= -180 && Number(lng) <= 180
+    ? { latitude: Number(lat), longitude: Number(lng) }
+    : null;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -2187,9 +2239,9 @@ function SiteModal({ site, onClose, onSave }) {
     }
     const latitude = Number(lat);
     const longitude = Number(lng);
-    if (!lat.trim() || !lng.trim() || !Number.isFinite(latitude) || latitude < 0 || latitude > 90
-      || !Number.isFinite(longitude) || longitude < 0 || longitude > 180) {
-      setError('Tọa độ không hợp lệ. Vĩ độ từ 0 đến 90, kinh độ từ 0 đến 180.');
+    if (!lat.trim() || !lng.trim() || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+      || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      setError('Tọa độ không hợp lệ. Vĩ độ từ -90 đến 90, kinh độ từ -180 đến 180.');
       return;
     }
     const siteCode = site?.code || code.trim();
@@ -2216,7 +2268,7 @@ function SiteModal({ site, onClose, onSave }) {
     }
   };
 
-  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form className="site-modal" onSubmit={submit}>
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form className="site-modal site-location-modal" onSubmit={submit}>
     <div className="modal-head"><div><span className="modal-icon"><MapPin size={18} /></span><div><h2>{site ? 'Chỉnh sửa di tích' : 'Thêm di tích mới'}</h2><p>Thông tin sẽ được lưu trực tiếp vào Backend.</p></div></div><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose}><X size={19} /></button></div>
     <div className="modal-body">
       <label>Tên di tích <em>*</em><input autoFocus value={name} onChange={(event) => { const value = event.target.value; setName(value); if (!site) setCode(slugify(value)); setError(''); }} placeholder="Ví dụ: Dinh Độc Lập" /></label>
@@ -2224,13 +2276,33 @@ function SiteModal({ site, onClose, onSave }) {
       <label>Địa chỉ <em>*</em><div className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => { setAddress(event.target.value); setError(''); }} placeholder="Số nhà, tên đường..." /></div></label>
       <div className="form-columns">
         <label>Vĩ độ GPS <em>*</em>
-          <input type="number" min="0" max="90" step="any" value={lat} onChange={(event) => setLat(event.target.value)} placeholder="10.7769" aria-invalid={Boolean(latitudeError)} aria-describedby={latitudeError ? 'site-lat-error' : undefined} />
+          <input type="number" min="-90" max="90" step="any" value={lat} onChange={(event) => setLat(event.target.value)} placeholder="10.7769" aria-invalid={Boolean(latitudeError)} aria-describedby={latitudeError ? 'site-lat-error' : undefined} />
           {latitudeError && <small className="coordinate-error" id="site-lat-error" role="alert">{latitudeError}</small>}
         </label>
         <label>Kinh độ GPS <em>*</em>
-          <input type="number" min="0" max="180" step="any" value={lng} onChange={(event) => setLng(event.target.value)} placeholder="106.6952" aria-invalid={Boolean(longitudeError)} aria-describedby={longitudeError ? 'site-lng-error' : undefined} />
+          <input type="number" min="-180" max="180" step="any" value={lng} onChange={(event) => setLng(event.target.value)} placeholder="106.6952" aria-invalid={Boolean(longitudeError)} aria-describedby={longitudeError ? 'site-lng-error' : undefined} />
           {longitudeError && <small className="coordinate-error" id="site-lng-error" role="alert">{longitudeError}</small>}
         </label>
+      </div>
+      <div className="coordinate-picker">
+        <div><strong>Chọn vị trí trên bản đồ</strong><span>Bấm vào bản đồ để lấy tọa độ hoặc chọn điểm di tích có sẵn.</span></div>
+        <SiteMap
+          sites={coordinateSites}
+          selectedSiteCode={site ? site.code ?? site.id : undefined}
+          onSelectSite={(selected) => {
+            setLat(String(selected.lat));
+            setLng(String(selected.lng));
+            setError('');
+          }}
+          initialCenter={draftLocation ? [draftLocation.latitude, draftLocation.longitude] : null}
+          draftLocation={draftLocation}
+          onLocationPick={({ latitude, longitude }) => {
+            setLat(latitude.toFixed(6));
+            setLng(longitude.toFixed(6));
+            setError('');
+          }}
+        />
+        {draftLocation && <small className="coordinate-picker-value">{draftLocation.latitude.toFixed(6)}, {draftLocation.longitude.toFixed(6)}</small>}
       </div>
       <div className="form-columns"><label>Loại hình<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Di tích lịch sử</option><option>Lịch sử</option><option>Kiến trúc</option><option>Bảo tàng</option><option>Văn hóa</option></select></label><label>Trạng thái<select value={status} onChange={(event) => setStatus(event.target.value)}><option>Mở cửa</option><option>Đóng cửa</option></select></label></div>
       {site && <label>Nội dung thuyết minh <em>*</em><textarea rows="4" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Nhập nội dung để hệ thống dùng cho thuyết minh và tạo audio..." /></label>}

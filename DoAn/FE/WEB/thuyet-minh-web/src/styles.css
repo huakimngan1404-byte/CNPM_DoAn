@@ -413,10 +413,25 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .radius-setting-heading strong { color: #434a55; font: 700 15px 'Manrope',sans-serif; }
 .radius-setting-heading small { color: #8c949f; font: 500 9px 'DM Sans',sans-serif; }
 .radius-setting > input[type="range"] { width: 100%; margin: 12px 0 8px; accent-color: #4285f4; }
+.map-site-search { display: flex; flex-direction: column; gap: 6px; margin-top: 15px; color: #68717e; font-size: 9px; font-weight: 600; }
+.map-site-search .table-search { width: 100%; }
+.map-site-search-results { display: flex; max-height: 145px; flex-direction: column; overflow-y: auto; margin-top: -8px; border: 1px solid #e9ebef; border-radius: 6px; background: #fff; }
+.map-site-search-results button { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 0; border-bottom: 1px solid #f0f1f3; color: #4a505b; background: #fff; text-align: left; cursor: pointer; font-size: 9px; }
+.map-site-search-results button:last-child { border-bottom: 0; }
+.map-site-search-results button:hover, .map-site-search-results button[aria-selected="true"] { background: #fff7f4; }
+.map-site-search-results button small { flex: 0 0 auto; color: #87909e; font-size: 8px; }
+.map-site-search-results > p { margin: 0; padding: 10px; color: #87909e; font-size: 9px; }
 .radius-input-row { display: flex; align-items: center; gap: 7px; }
 .radius-input-row input { width: 74px; height: 32px; padding: 0 7px; border: 1px solid #e5e8ec; border-radius: 5px; color: #535b66; font-size: 9px; }
 .radius-input-row .button { flex: 1; justify-content: center; }
 .radius-setting > p { margin: 6px 0 0; color: #8e96a2; font-size: 9px; }
+.map-route-panel { gap: 12px; }
+.map-route-panel .panel-heading h3 { margin: 0; font: 700 12px 'Manrope',sans-serif; }
+.map-route-panel .panel-heading p { margin: 4px 0 0; color: #8e96a2; font-size: 9px; }
+.map-route-panel .panel-heading > svg { flex: 0 0 auto; color: #6283c4; }
+.map-route-panel .dashboard-route-selectors { grid-template-columns: 1fr; gap: 9px; }
+.map-route-panel .dashboard-route-selectors label { gap: 5px; }
+.map-route-panel .dashboard-route-selectors select { height: 34px; }
 .simulation-controls { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
 .simulation-controls .button { justify-content: center; }
 .simulation-controls > p { margin: 0; color: #6f7a88; font-size: 9px; line-height: 1.6; }
@@ -450,6 +465,7 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 
 .modal-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 18px; background: #20263180; backdrop-filter: blur(3px); }
 .site-modal { display: flex; width: min(100%,490px); max-height: calc(100vh - 36px); flex-direction: column; overflow: hidden; border: 1px solid #e8e9ec; border-radius: 11px; background: #fff; box-shadow: 0 20px 70px #17202f35; animation: modal-in .18s ease-out; }
+.site-location-modal { width: min(100%,760px); }
 @keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
 .modal-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 18px 20px 15px; border-bottom: 1px solid #f0f1f3; }
 .modal-head > div { display: flex; align-items: center; gap: 10px; }
@@ -463,6 +479,11 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .input-with-icon > svg { position: absolute; top: 12px; left: 10px; color: #9ea5af; }
 .input-with-icon input { padding-left: 31px; }
 .form-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.coordinate-picker { display: flex; flex-direction: column; gap: 5px; }
+.coordinate-picker > div:first-child { display: flex; flex-direction: column; gap: 4px; }
+.coordinate-picker > div:first-child strong { color: #626a76; font-size: 10px; }
+.coordinate-picker > div:first-child span, .coordinate-picker-value { color: #929aa5; font-size: 9px; }
+.coordinate-picker .large-map { height: 260px; min-height: 260px; margin-top: 5px; cursor: crosshair; }
 .gps-note { display: flex; align-items: center; gap: 8px; padding: 10px; border: 1px solid #eceff3; border-radius: 6px; color: #74809a; background: #fafbfc; }
 .gps-note > svg { flex: 0 0 auto; color: #6488c9; }
 .gps-note span { display: flex; flex: 1; flex-direction: column; gap: 3px; }
