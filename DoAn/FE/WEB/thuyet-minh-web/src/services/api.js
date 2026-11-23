@@ -1,6 +1,6 @@
 const defaultApiUrl = `${window.location.protocol}//${window.location.hostname}:8000`;
 const defaultApiBaseUrl = import.meta.env.DEV ? '' : defaultApiUrl;
-const configuredApiUrl = import.meta.env.VITE_API_URL ?? defaultApiBaseUrl;
+const configuredApiUrl = (import.meta.env.VITE_API_URL ?? defaultApiBaseUrl).trim();
 export const apiBaseUrl = (configuredApiUrl && !/^https?:\/\//i.test(configuredApiUrl)
   ? `https://${configuredApiUrl}`
   : configuredApiUrl).replace(/\/+$/, '');
@@ -43,6 +43,55 @@ async function handleExpiredAdminSession(response) {
   }
 }
 
+async function createBackendHttpError(response) {
+  let responseText = '';
+  try {
+    responseText = await response.text();
+  } catch {
+    responseText = '';
+  }
+
+  let body = null;
+  if (responseText) {
+    try {
+      body = JSON.parse(responseText);
+    } catch {
+      body = null;
+    }
+  }
+
+  let detail = typeof body?.detail === 'string' ? body.detail : '';
+  if (Array.isArray(body?.detail)) {
+    detail = body.detail.map((item) => {
+      const location = Array.isArray(item?.loc)
+        ? item.loc.filter((part) => part !== 'body').join('.')
+        : '';
+      const message = typeof item?.msg === 'string' ? item.msg : '';
+      return [location, message].filter(Boolean).join(': ');
+    }).filter(Boolean).join('; ');
+  }
+  if (!detail && typeof body?.message === 'string') detail = body.message;
+  if (!detail && responseText && !responseText.trimStart().startsWith('<')) {
+    detail = responseText.trim().slice(0, 500);
+  }
+
+  const statusLabels = {
+    400: 'Yêu cầu không hợp lệ',
+    401: 'Chưa xác thực hoặc phiên đăng nhập đã hết hạn',
+    403: 'Không có quyền thực hiện thao tác',
+    404: 'Không tìm thấy tài nguyên',
+    422: 'Dữ liệu gửi lên không hợp lệ',
+    500: 'Backend gặp lỗi nội bộ',
+  };
+  const statusLabel = statusLabels[response.status] || response.statusText || 'Lỗi HTTP';
+  const error = new Error(
+    `Backend trả HTTP ${response.status} (${statusLabel})${detail ? `: ${detail}` : '.'}`,
+  );
+  error.status = response.status;
+  error.url = response.url;
+  return error;
+}
+
 export async function loginAdmin(username, password) {
   const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
     method: 'POST',
@@ -50,14 +99,7 @@ export async function loginAdmin(username, password) {
     body: JSON.stringify({ username, password }),
   });
   if (!response.ok) {
-    let message = `Đăng nhập thất bại (${response.status}).`;
-    try {
-      const body = await response.json();
-      if (typeof body.detail === 'string') message = body.detail;
-    } catch {
-      // Keep the HTTP status message when the response is not JSON.
-    }
-    throw new Error(message);
+    throw await createBackendHttpError(response);
   }
   const session = await response.json();
   if (typeof session.access_token !== 'string' || !session.access_token) {
@@ -121,30 +163,36 @@ export async function fetchSites() {
 }
 
 async function requestSite(path, options = {}, requiresAdmin = false) {
+  const requestUrl = `${apiBaseUrl}${path}`;
+  const requestOptions = requiresAdmin ? withAdminToken(options) : options;
+  const method = options.method || 'GET';
   let response;
   try {
-    response = await fetch(
-      `${apiBaseUrl}${path}`,
-      requiresAdmin ? withAdminToken(options) : options,
-    );
+    response = await fetch(requestUrl, requestOptions);
   } catch (error) {
     if (error.name === 'AbortError') throw error;
-    throw new Error(`Không kết nối được Backend tại ${apiBaseUrl || 'địa chỉ proxy hiện tại'}.`);
+    const networkError = new Error(
+      `Không nhận được phản hồi từ Backend khi ${method} ${requestUrl}. Kiểm tra mạng, CORS hoặc TLS.`,
+    );
+    networkError.code = 'NETWORK_ERROR';
+    networkError.cause = error;
+    throw networkError;
   }
   if (requiresAdmin) await handleExpiredAdminSession(response);
   if (!response.ok) {
-    let detail = `Backend phản hồi lỗi (${response.status}).`;
-    try {
-      const body = await response.json();
-      if (typeof body.detail === 'string') detail = body.detail;
-    } catch {
-      // Keep the HTTP status message when the response is not JSON.
-    }
-    const error = new Error(detail);
+    throw await createBackendHttpError(response);
+  }
+  if (response.status === 204) return null;
+  const responseText = await response.text();
+  if (!responseText) return null;
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    const error = new Error(`Backend trả HTTP ${response.status} nhưng phản hồi không phải JSON.`);
     error.status = response.status;
+    error.url = response.url;
     throw error;
   }
-  return response.status === 204 ? null : response.json();
 }
 
 export async function fetchAdminSites() {
