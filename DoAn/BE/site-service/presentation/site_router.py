@@ -244,13 +244,15 @@ def to_site_document(data: SiteAdminForm | SiteAdminUpdate, code: str):
     return {
         "code": code,
         "name": data.name,
+        "lat": data.lat,
+        "lng": data.lng,
         "address": data.address,
         "category": data.category,
         "description": data.description,
         "is_active": data.is_active,
         "location": {
             "type": "Point",
-            "coordinates": [data.lng, data.lat]
+            "coordinates": [data.lng, data.lat],
         }
     }
 

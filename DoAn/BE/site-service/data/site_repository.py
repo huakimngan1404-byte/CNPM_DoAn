@@ -616,12 +616,40 @@ class SiteRepository:
 
     async def seed_default_sites(self):
         for site in DEFAULT_SITES:
+            coordinates = site["location"]["coordinates"]
+            site_data = {
+                **site,
+                "lng": coordinates[0],
+                "lat": coordinates[1],
+            }
             await db.sites.update_one(
                 {"code": site["code"]},
-                {"$setOnInsert": site},
+                {"$setOnInsert": site_data},
                 upsert=True,
             )
         await db.sites.update_many(
-            {"geofence_radius": {"$exists": False}},
-            {"$set": {"geofence_radius": 100.0}},
+            {
+                "location.type": "Point",
+                "location.coordinates.0": {
+                    "$type": "number",
+                    "$gte": -180,
+                    "$lte": 180,
+                },
+                "location.coordinates.1": {
+                    "$type": "number",
+                    "$gte": -90,
+                    "$lte": 90,
+                },
+            },
+            [
+                {
+                    "$set": {
+                        "lng": {"$arrayElemAt": ["$location.coordinates", 0]},
+                        "lat": {"$arrayElemAt": ["$location.coordinates", 1]},
+                        "geofence_radius": {
+                            "$ifNull": ["$geofence_radius", 100.0]
+                        },
+                    }
+                }
+            ],
         )
