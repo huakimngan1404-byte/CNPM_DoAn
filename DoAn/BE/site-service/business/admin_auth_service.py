@@ -14,6 +14,10 @@ from data.site_repository import db
 
 TOKEN_LIFETIME_SECONDS = 12 * 60 * 60
 ADMIN_DOCUMENT_ID = "primary"
+PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
+PASSWORD_HASH_ITERATIONS = 600_000
+PASSWORD_HASH_SALT_BYTES = 16
+PASSWORD_HASH_BYTES = 32
 
 
 def _encode(value: bytes) -> str:
@@ -22,6 +26,60 @@ def _encode(value: bytes) -> str:
 
 def _decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_bytes(PASSWORD_HASH_SALT_BYTES)
+    password_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        PASSWORD_HASH_ITERATIONS,
+        dklen=PASSWORD_HASH_BYTES,
+    )
+    return "$".join((
+        PASSWORD_HASH_ALGORITHM,
+        str(PASSWORD_HASH_ITERATIONS),
+        _encode(salt),
+        _encode(password_hash),
+    ))
+
+
+def _verify_password(password: str, account: dict) -> bool:
+    stored_hash = account.get("password_hash")
+    if isinstance(stored_hash, str):
+        try:
+            algorithm, iterations_value, encoded_salt, encoded_hash = stored_hash.split("$")
+            if algorithm != PASSWORD_HASH_ALGORITHM:
+                return False
+            iterations = int(iterations_value)
+            if iterations != PASSWORD_HASH_ITERATIONS:
+                return False
+            salt = _decode(encoded_salt)
+            expected_hash = _decode(encoded_hash)
+            if len(salt) != PASSWORD_HASH_SALT_BYTES or len(expected_hash) != PASSWORD_HASH_BYTES:
+                return False
+            actual_hash = hashlib.pbkdf2_hmac(
+                "sha256",
+                password.encode("utf-8"),
+                salt,
+                iterations,
+                dklen=PASSWORD_HASH_BYTES,
+            )
+            return hmac.compare_digest(actual_hash, expected_hash)
+        except (ValueError, UnicodeDecodeError, binascii.Error):
+            return False
+
+    if "password_hash" in account:
+        return False
+    legacy_password = account.get("password")
+    return (
+        isinstance(legacy_password, str)
+        and hmac.compare_digest(
+            legacy_password.encode("utf-8"),
+            password.encode("utf-8"),
+        )
+    )
 
 
 class AdminAuthService:
@@ -43,7 +101,7 @@ class AdminAuthService:
                 "_id": ADMIN_DOCUMENT_ID,
                 "username": username,
                 "display_name": username,
-                "password": password,
+                "password_hash": _hash_password(password),
                 "token_secret": _encode(secrets.token_bytes(32)),
             })
         except DuplicateKeyError:
@@ -54,8 +112,41 @@ class AdminAuthService:
         account = await self.accounts.find_one({"_id": ADMIN_DOCUMENT_ID})
         if not account or account["username"] != username.strip():
             raise ValueError("Tên đăng nhập hoặc mật khẩu không đúng.")
-        if account.get("password") != password:
+        if not _verify_password(password, account):
             raise ValueError("Tên đăng nhập hoặc mật khẩu không đúng.")
+        if "password_hash" not in account:
+            password_hash = _hash_password(password)
+            result = await self.accounts.update_one(
+                {
+                    "_id": ADMIN_DOCUMENT_ID,
+                    "password": account.get("password"),
+                    "password_hash": {"$exists": False},
+                },
+                {
+                    "$set": {"password_hash": password_hash},
+                    "$unset": {"password": "", "password_salt": ""},
+                },
+            )
+            if result.modified_count:
+                account = {**account, "password_hash": password_hash}
+                account.pop("password", None)
+                account.pop("password_salt", None)
+            else:
+                account = await self.accounts.find_one({"_id": ADMIN_DOCUMENT_ID})
+                if (
+                    not account
+                    or account.get("username") != username.strip()
+                    or not _verify_password(password, account)
+                ):
+                    raise ValueError("Tên đăng nhập hoặc mật khẩu không đúng.")
+        elif "password" in account or "password_salt" in account:
+            await self.accounts.update_one(
+                {
+                    "_id": ADMIN_DOCUMENT_ID,
+                    "password_hash": account["password_hash"],
+                },
+                {"$unset": {"password": "", "password_salt": ""}},
+            )
         return self._create_session(account)
 
     async def update_credentials(
@@ -65,7 +156,7 @@ class AdminAuthService:
         new_password: str,
     ):
         account = await self.accounts.find_one({"_id": ADMIN_DOCUMENT_ID})
-        if not account or account.get("password") != current_password:
+        if not account or not _verify_password(current_password, account):
             raise ValueError("Mật khẩu hiện tại không chính xác.")
 
         await self.accounts.update_one(
@@ -73,9 +164,9 @@ class AdminAuthService:
             {"$set": {
                 "username": username.strip(),
                 "display_name": username.strip(),
-                "password": new_password,
+                "password_hash": _hash_password(new_password),
                 "token_secret": _encode(secrets.token_bytes(32)),
-            }, "$unset": {"password_salt": "", "password_hash": ""}},
+            }, "$unset": {"password": "", "password_salt": ""}},
         )
         updated_account = await self.accounts.find_one({"_id": ADMIN_DOCUMENT_ID})
         return self._create_session(updated_account)

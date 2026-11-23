@@ -31,7 +31,7 @@ class VisitorSession(BaseModel):
     session_id: UUID
 
 class ListenEvent(BaseModel):
-    site_code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    site_code: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     language: str = Field(min_length=2, max_length=10, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]+)*$")
     device: Literal["web", "android", "ios"]
     playback_id: UUID | None = None
@@ -42,7 +42,7 @@ class NarrationStatusUpdate(BaseModel):
     narration_status: Literal["ready", "published"]
 
 class SiteAdminForm(BaseModel):
-    code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    code: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     name: str = Field(min_length=2, max_length=200)
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
@@ -77,7 +77,7 @@ class LanguageAdminUpdate(BaseModel):
     is_active: bool
 
 class NarrationAdminCreate(BaseModel):
-    site_code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    site_code: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     lang: str = Field(min_length=2, max_length=35, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
     description: str = Field(min_length=10, max_length=20000)
 

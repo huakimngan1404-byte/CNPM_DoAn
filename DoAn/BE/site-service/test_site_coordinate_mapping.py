@@ -1,7 +1,14 @@
 import pytest
 from pydantic import ValidationError
 
-from presentation.site_router import GPSData, SiteAdminForm, SiteAdminUpdate, to_site_document
+from presentation.site_router import (
+    GPSData,
+    ListenEvent,
+    NarrationAdminCreate,
+    SiteAdminForm,
+    SiteAdminUpdate,
+    to_site_document,
+)
 
 
 def test_create_site_mapping_keeps_geojson_order_and_flat_coordinates():
@@ -80,3 +87,40 @@ def test_gps_coordinates_enforce_geographic_ranges():
     ):
         with pytest.raises(ValidationError):
             GPSData(user_id="test-user", **coordinates)
+
+
+def test_site_code_limit_matches_frontend_for_create_and_references():
+    max_length_code = "a" * 80
+    SiteAdminForm(
+        code=max_length_code,
+        name="Test site",
+        lat=0,
+        lng=0,
+        address="Test address",
+        category="Historical site",
+    )
+    ListenEvent(site_code=max_length_code, language="vi", device="web")
+    NarrationAdminCreate(
+        site_code=max_length_code,
+        lang="vi",
+        description="A sufficiently long narration.",
+    )
+
+    too_long_code = "a" * 81
+    with pytest.raises(ValidationError):
+        SiteAdminForm(
+            code=too_long_code,
+            name="Test site",
+            lat=0,
+            lng=0,
+            address="Test address",
+            category="Historical site",
+        )
+    with pytest.raises(ValidationError):
+        ListenEvent(site_code=too_long_code, language="vi", device="web")
+    with pytest.raises(ValidationError):
+        NarrationAdminCreate(
+            site_code=too_long_code,
+            lang="vi",
+            description="A sufficiently long narration.",
+        )
