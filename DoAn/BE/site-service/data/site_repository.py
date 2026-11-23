@@ -50,10 +50,10 @@ def narration_status(record, has_audio):
         return "hidden"
 
     status = record.get("narration_status")
-    if status == "draft":
+    if status in {None, "draft"}:
         status = "ready" if has_audio else "not_ready"
     if status not in {"not_ready", "ready", "published"}:
-        status = "published" if has_audio else "not_ready"
+        status = "ready" if has_audio else "not_ready"
     if status in {"ready", "published"} and not has_audio:
         return "not_ready"
     return status
@@ -264,12 +264,27 @@ class SiteRepository:
             return None
 
         record = await self.get_narration(site_code, lang)
-        if not record or narration_status(
-            record,
-            await self.has_valid_narration_audio(record),
-        ) != "published":
+        if not record or record.get("is_hidden") is True or record.get("narration_status") == "hidden":
             return None
-        return record
+
+        published_version = (
+            record
+            if record.get("narration_status") == "published"
+            else record.get("published_version")
+        )
+        if (
+            not isinstance(published_version, dict)
+            or published_version.get("narration_status") != "published"
+            or not isinstance(published_version.get("description"), str)
+            or not published_version["description"].strip()
+            or not await self.has_valid_narration_audio(published_version)
+        ):
+            return None
+        return {
+            **published_version,
+            "site_code": site_code,
+            "lang": lang,
+        }
 
     async def save_narration(
         self,
@@ -281,12 +296,6 @@ class SiteRepository:
     ):
         existing = await db.translations.find_one(
             {"site_code": site_code, "lang": lang},
-            {
-                "_id": 0,
-                "description": 1,
-                "is_hidden": 1,
-                "narration_status": 1,
-            },
         )
         updates = {
             "site_code": site_code,
@@ -297,6 +306,24 @@ class SiteRepository:
         }
         if not existing or existing.get("description") != description:
             updates.update({"audio_asset_id": None, "audio_url": None})
+            published_version = existing.get("published_version") if existing else None
+            if existing and (
+                existing.get("narration_status") == "published"
+                or (
+                    existing.get("is_hidden") is True
+                    and existing.get("status_before_hidden") == "published"
+                )
+            ):
+                published_version = {
+                    "source_text": existing.get("source_text"),
+                    "description": existing.get("description"),
+                    "audio_asset_id": existing.get("audio_asset_id"),
+                    "audio_url": existing.get("audio_url"),
+                    "updated_at": existing.get("updated_at"),
+                    "narration_status": "published",
+                }
+            if published_version:
+                updates["published_version"] = published_version
             if existing and existing.get("is_hidden") is True:
                 updates.update({
                     "narration_status": "hidden",
@@ -351,7 +378,7 @@ class SiteRepository:
         if restored_status == "draft":
             restored_status = "ready" if has_audio else "not_ready"
         if restored_status not in {"not_ready", "ready", "published"}:
-            restored_status = "published" if has_audio else "not_ready"
+            restored_status = "ready" if has_audio else "not_ready"
         if restored_status in {"ready", "published"} and not has_audio:
             restored_status = "not_ready"
         result = await db.translations.update_one(
@@ -388,6 +415,8 @@ class SiteRepository:
                 "$set": {"narration_status": status},
                 "$unset": {"status_before_hidden": ""},
             }
+            if status == "published":
+                update["$unset"]["published_version"] = ""
         result = await db.translations.update_one(
             {"site_code": site_code, "lang": lang},
             update,

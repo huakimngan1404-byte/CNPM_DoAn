@@ -485,11 +485,16 @@ class TestDatabaseBackedSiteTranslation:
             }.__getitem__
             result = await get_site_translation("site-1", "en")
 
-        translations.find_one.assert_awaited_once_with({
+        translation_lookups = translations.find_one.await_args_list
+        assert translation_lookups[0].args[0] == {
             "site_code": "site-1",
             "lang": "en",
             "source_text": "Updated Vietnamese description",
-        })
+        }
+        assert [call.args[0] for call in translation_lookups[1:]] == [
+            {"site_code": "site-1", "lang": "en"},
+            {"site_code": "site-1", "lang": "en"},
+        ]
         mock_translate.assert_awaited_once_with(
             "Updated Vietnamese description",
             "en",

@@ -74,10 +74,9 @@ class SiteTranslationService:
                     site_code, lang, translated_text
                 )
                 audio_url = self._audio_url(audio_asset_id)
-                if cached.get("audio_asset_id") != audio_asset_id or cached.get("audio_url") != audio_url:
-                    await self.repository.update_translation_audio(
-                        cached["_id"], audio_asset_id, audio_url
-                    )
+                await self.repository.update_translation_audio(
+                    cached["_id"], audio_asset_id, audio_url
+                )
                 return self._result(
                     site_code, lang, translated_text, audio_url, "HIT", audio_hit
                 )

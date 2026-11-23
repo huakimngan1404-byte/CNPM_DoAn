@@ -37,6 +37,7 @@ import {
   updateNarration,
   updateAdminCredentials,
 } from './services/api.js';
+import { getTopSitesData } from './dashboard.js';
 
 const navSections = [
   {
@@ -505,6 +506,8 @@ function Dashboard({ sites, languages, onNavigate }) {
       }
     };
 
+    setListenStats(null);
+    setListenError('');
     refreshListenStats();
     const interval = window.setInterval(refreshListenStats, 30000);
     return () => {
@@ -529,25 +532,13 @@ function Dashboard({ sites, languages, onNavigate }) {
     : [0, Math.round((chartPoints.length - 1) / 4), Math.round((chartPoints.length - 1) / 2), Math.round(((chartPoints.length - 1) * 3) / 4), chartPoints.length - 1];
   const chartLabels = [...new Set(chartLabelIndexes)].map((index) => chartPoints[index]);
   const chartScale = [1, 0.75, 0.5, 0.25, 0].map((ratio) => Math.round(chartMaximum * ratio));
-  const listenCountsBySite = new globalThis.Map(
-    (listenStats?.top_sites ?? []).map((site) => [site.site_code, site.count]),
-  );
-  const topSitesData = sites
-    .map((site) => ({
-      id: site.code || site.id || site.name,
-      title: site.name,
-      listens: listenCountsBySite.get(site.code) ?? 0,
-    }))
-    .sort((first, second) => second.listens - first.listens)
-    .map((site, index) => ({
-      ...site,
-      tone: ['orange', 'blue', 'green', 'violet'][index % 4],
-    }));
-  const maxListens = Math.max(1, ...topSitesData.map((site) => site.listens));
+  const topSitesData = getTopSitesData(sites, listenStats);
+  const availableTopSites = topSitesData ?? [];
+  const maxListens = Math.max(1, ...availableTopSites.map((site) => site.listens));
   const featuredPageSize = 8;
-  const featuredPageCount = Math.ceil(topSitesData.length / featuredPageSize);
+  const featuredPageCount = Math.ceil(availableTopSites.length / featuredPageSize);
   const visibleFeaturedPage = Math.min(featuredPage, Math.max(0, featuredPageCount - 1));
-  const visibleTopSites = topSitesData.slice(
+  const visibleTopSites = availableTopSites.slice(
     visibleFeaturedPage * featuredPageSize,
     (visibleFeaturedPage + 1) * featuredPageSize,
   );
@@ -640,6 +631,7 @@ function Dashboard({ sites, languages, onNavigate }) {
             <div className="panel-heading"><div><h3>Di tích nổi bật</h3><p>Xếp theo lượt nghe trong kỳ đã chọn</p></div><button className="more-button" aria-label="Tùy chọn"><MoreHorizontal size={20} /></button></div>
             
             <div className="top-place-list">
+              {topSitesData === null && <div className="top-place-unavailable" role="status">—</div>}
               {visibleTopSites.map((site, index) => {
                 const percent = Math.round((site.listens / maxListens) * 100);
                 return (
@@ -654,7 +646,7 @@ function Dashboard({ sites, languages, onNavigate }) {
                   />
                 );
               })}
-              {topSitesData.length === 0 && <div className="empty-state"><MapPin size={23} /><strong>Chưa có di tích</strong><span>Thêm di tích trong mục Quản lý di tích để xem tại đây.</span></div>}
+              {topSitesData?.length === 0 && <div className="empty-state"><MapPin size={23} /><strong>Chưa có di tích</strong><span>Thêm di tích trong mục Quản lý di tích để xem tại đây.</span></div>}
             </div>
             {featuredPageCount > 1 && <div className="top-place-pagination">
               <span>{visibleFeaturedPage + 1} / {featuredPageCount}</span>

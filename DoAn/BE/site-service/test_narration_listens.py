@@ -10,11 +10,11 @@ from data import site_repository
 from data.site_repository import SiteRepository, has_valid_mp3_data, narration_status
 
 
-def test_narration_status_replaces_draft_with_not_ready():
-    assert narration_status({}, has_audio=True) == "published"
+def test_missing_or_legacy_status_never_publishes_automatically():
+    assert narration_status({}, has_audio=True) == "ready"
     assert narration_status({}, has_audio=False) == "not_ready"
-    assert narration_status({"narration_status": "draft"}, has_audio=False) == "not_ready"
     assert narration_status({"narration_status": "draft"}, has_audio=True) == "ready"
+    assert narration_status({"narration_status": "draft"}, has_audio=False) == "not_ready"
     assert narration_status({"is_hidden": True}, has_audio=True) == "hidden"
     assert narration_status({"narration_status": "ready"}, has_audio=False) == "not_ready"
 
@@ -75,9 +75,163 @@ async def test_unhiding_legacy_draft_restores_not_ready(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_unhiding_legacy_record_with_audio_restores_ready_not_published(monkeypatch):
+    record = {
+        "site_code": "test-site",
+        "lang": "vi",
+        "is_hidden": True,
+        "narration_status": "hidden",
+        "audio_asset_id": "legacy-audio",
+    }
+    translations = SimpleNamespace(
+        find_one=AsyncMock(return_value=record),
+        update_one=AsyncMock(return_value=SimpleNamespace(matched_count=1)),
+    )
+    monkeypatch.setattr(
+        site_repository,
+        "db",
+        SimpleNamespace(translations=translations),
+    )
+    repo = SiteRepository()
+    repo.get_ready_audio_asset_ids = AsyncMock(return_value={"legacy-audio"})
+
+    assert await repo.set_narration_hidden("test-site", "vi", False)
+    update = translations.update_one.await_args.args[1]
+    assert update["$set"]["narration_status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_editing_published_narration_keeps_public_snapshot(monkeypatch):
+    published_record = {
+        "site_code": "test-site",
+        "lang": "vi",
+        "source_text": "Approved source",
+        "description": "Approved narration",
+        "audio_asset_id": "approved-audio",
+        "audio_url": "/api/audio/files/approved-audio",
+        "narration_status": "published",
+    }
+    translations = SimpleNamespace(
+        find_one=AsyncMock(return_value=published_record),
+        update_one=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        site_repository,
+        "db",
+        SimpleNamespace(translations=translations),
+    )
+
+    await SiteRepository().save_narration(
+        "test-site",
+        "vi",
+        "New source",
+        "New unreviewed narration",
+        datetime.now(timezone.utc),
+    )
+
+    update = translations.update_one.await_args.args[1]
+    assert update["$set"]["narration_status"] == "not_ready"
+    assert update["$set"]["audio_asset_id"] is None
+    assert update["$set"]["published_version"] == {
+        "source_text": "Approved source",
+        "description": "Approved narration",
+        "audio_asset_id": "approved-audio",
+        "audio_url": "/api/audio/files/approved-audio",
+        "updated_at": None,
+        "narration_status": "published",
+    }
+
+
+@pytest.mark.asyncio
+async def test_publishing_new_narration_promotes_it_and_clears_snapshot(monkeypatch):
+    translations = SimpleNamespace(
+        find_one=AsyncMock(return_value={"site_code": "test-site", "lang": "vi"}),
+        update_one=AsyncMock(return_value=SimpleNamespace(matched_count=1)),
+    )
+    monkeypatch.setattr(
+        site_repository,
+        "db",
+        SimpleNamespace(translations=translations),
+    )
+
+    assert await SiteRepository().set_narration_status("test-site", "vi", "published")
+
+    update = translations.update_one.await_args.args[1]
+    assert update["$set"]["narration_status"] == "published"
+    assert "published_version" in update["$unset"]
+
+
+@pytest.mark.asyncio
+async def test_public_narration_rejects_legacy_status_and_uses_approved_snapshot():
+    repo = SiteRepository()
+    repo.get_site_by_code = AsyncMock(return_value={"code": "test-site"})
+    repo.get_language = AsyncMock(return_value={"_id": "vi", "is_active": True})
+    repo.has_valid_narration_audio = AsyncMock(return_value=True)
+
+    repo.get_narration = AsyncMock(return_value={
+        "description": "Legacy narration",
+        "audio_asset_id": "legacy-audio",
+        "audio_url": "/api/audio/files/legacy-audio",
+    })
+    assert await repo.get_public_narration("test-site", "vi") is None
+
+    approved_snapshot = {
+        "description": "Approved narration",
+        "audio_asset_id": "approved-audio",
+        "audio_url": "/api/audio/files/approved-audio",
+        "narration_status": "published",
+    }
+    repo.get_narration = AsyncMock(return_value={
+        "description": "New unreviewed narration",
+        "audio_asset_id": None,
+        "narration_status": "ready",
+        "published_version": approved_snapshot,
+    })
+    result = await repo.get_public_narration("test-site", "vi")
+    assert result["description"] == "Approved narration"
+
+    repo.has_valid_narration_audio = AsyncMock(return_value=False)
+    assert await repo.get_public_narration("test-site", "vi") is None
+
+
+@pytest.mark.asyncio
 async def test_set_narration_status_rejects_draft():
     with pytest.raises(ValueError, match="không hợp lệ"):
         await SiteService().set_narration_status("test-site", "vi", "draft")
+
+
+@pytest.mark.asyncio
+async def test_mark_narration_ready_requires_valid_audio():
+    repo = SimpleNamespace(
+        get_narration=AsyncMock(return_value={
+            "description": "Narration",
+            "audio_asset_id": "test-audio",
+        }),
+        has_valid_narration_audio=AsyncMock(return_value=True),
+        set_narration_status=AsyncMock(return_value=True),
+    )
+    service = SiteService()
+    service.repo = repo
+
+    await service.mark_narration_ready("test-site", "vi")
+
+    repo.set_narration_status.assert_awaited_once_with("test-site", "vi", "ready")
+
+
+@pytest.mark.asyncio
+async def test_mark_narration_ready_rejects_invalid_audio():
+    repo = SimpleNamespace(
+        get_narration=AsyncMock(return_value={"description": "Narration"}),
+        has_valid_narration_audio=AsyncMock(return_value=False),
+        set_narration_status=AsyncMock(return_value=True),
+    )
+    service = SiteService()
+    service.repo = repo
+
+    with pytest.raises(ValueError, match="MP3 hợp lệ"):
+        await service.mark_narration_ready("test-site", "vi")
+
+    repo.set_narration_status.assert_not_awaited()
 
 
 @pytest.mark.asyncio

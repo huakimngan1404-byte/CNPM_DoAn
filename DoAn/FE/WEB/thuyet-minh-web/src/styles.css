@@ -167,6 +167,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .top-places-panel { display: flex; flex-direction: column; }
 .more-button, .row-more { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid transparent; border-radius: 5px; color: #9aa1ab; background: transparent; cursor: pointer; }
 .top-place-list { display: flex; flex: 1; flex-direction: column; margin-top: 12px; }
+.top-place-unavailable { padding: 18px 0; color: var(--muted); text-align: center; }
 .top-place { display: flex; min-height: 56px; align-items: center; gap: 9px; border-bottom: 1px solid #f0f1f3; }
 .top-rank { width: 17px; color: #a5abb4; font: 700 9px 'Manrope',sans-serif; }
 .top-place-icon { display: grid; width: 31px; height: 31px; place-items: center; border-radius: 7px; }
