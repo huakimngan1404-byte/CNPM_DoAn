@@ -21,6 +21,9 @@ import {
   apiBaseUrl, fetchActiveLanguages, fetchNearbySites, fetchSiteAudio, fetchSites,
   heartbeatVisitor, leaveVisitor, recordNarrationListen,
 } from './src/services/api.js';
+import {
+  calculateDistance, findGeofenceSite, getSiteGeofenceRadius,
+} from './src/services/geofencing.js';
 import MapCanvas from './src/components/MapCanvas';
 import {
   narrationUnavailableMessage, translateLanguageName, translateUiText,
@@ -95,7 +98,8 @@ export default function App() {
   const [qrCodeVisible, setQrCodeVisible] = useState(false);
   const [languagePickerMode, setLanguagePickerMode] = useState('app');
   const [savedIds, setSavedIds] = useState([]);
-  const geofenceInsideRef = useRef(new Set());
+  const activeGeofenceSiteIdRef = useRef(null);
+  const simulationActiveRef = useRef(false);
   const siteListRef = useRef(siteList);
   const selectedSiteRef = useRef(selectedSite);
   siteListRef.current = siteList;
@@ -191,72 +195,71 @@ export default function App() {
     };
   }, [visitorSessionId]);
 
-// Theo dõi GPS thật và tự phát audio khi vừa vào vùng 50 m của một di tích.
-useEffect(() => {
-  let locationSubscription = null;
-  let isActive = true;
-  let hasInitialLocation = false;
+  const handleGeofenceLocation = useCallback((location, source = 'gps') => {
+    if (source !== 'simulation' && simulationActiveRef.current) return null;
+    const previousSiteId = activeGeofenceSiteIdRef.current;
+    const match = findGeofenceSite(siteListRef.current, location, previousSiteId);
+    if (!match.valid) return null;
 
-  const startTracking = async () => {
-    if (!autoPlay) return;
+    activeGeofenceSiteIdRef.current = match.site?.id ?? null;
+    if (!match.site) return null;
+    if (match.site.id === previousSiteId) return match.site;
 
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (!isActive || status !== 'granted') return;
+    audioPlayer.pause();
+    audioPlayer.replace(null);
+    setAudioError('');
+    setMapAudioSiteId(null);
+    setPendingAutoPlaySiteId(match.site.id);
+    setSelectedSite(match.site);
+    if (source === 'simulation') {
+      setActiveTab('map');
+      setScreen('main');
+    } else {
+      setScreen('detail');
+    }
+    return match.site;
+  }, [audioPlayer]);
 
-    locationSubscription = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 10 },
-      (location) => {
-        const { latitude, longitude } = location.coords;
-        if (!isActive) return;
-        void fetchNearbySites(latitude, longitude, visitorSessionId, audioLanguage.id).catch((error) => {
-          console.error('Không thể đồng bộ vị trí GPS với backend:', error);
-        });
+  const handleSimulationActiveChange = useCallback((isActive) => {
+    simulationActiveRef.current = isActive;
+  }, []);
 
-        const currentInside = geofenceInsideRef.current;
-        const nextInside = new Set();
-        const newlyEntered = [];
-        siteListRef.current.forEach((site) => {
-          if (site.latitude == null || site.longitude == null) return;
-          const distance = calculateDistance(
-            latitude,
-            longitude,
-            Number(site.latitude),
-            Number(site.longitude)
-          );
-          const radius = Number(site.radius ?? 100);
-          const wasInside = currentInside.has(site.id);
-          if (distance <= radius || (wasInside && distance <= radius + 15)) {
-            nextInside.add(site.id);
-          }
-          if (hasInitialLocation && !wasInside && distance <= radius) {
-            newlyEntered.push({ site, distance });
-          }
-        });
-        geofenceInsideRef.current = nextInside;
-        hasInitialLocation = true;
+  // GPS thật và mô phỏng dùng chung phép chọn vùng; xử lý cả tọa độ GPS đầu tiên.
+  useEffect(() => {
+    let locationSubscription = null;
+    let isActive = true;
 
-        const enteredSite = newlyEntered
-          .sort((left, right) => left.distance - right.distance)[0]?.site;
-        if (!enteredSite) return;
-
-        audioPlayer.pause();
-        audioPlayer.replace(null);
-        setPendingAutoPlaySiteId(enteredSite.id);
-        setSelectedSite(enteredSite);
-        setScreen('detail');
+    const startTracking = async () => {
+      if (!autoPlay) {
+        if (!simulationActiveRef.current) activeGeofenceSiteIdRef.current = null;
+        return;
       }
-    );
-  };
 
-  void startTracking().catch((error) => {
-    console.error('Không thể khởi động theo dõi GPS:', error);
-  });
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (!isActive || status !== 'granted') return;
 
-  return () => {
-    isActive = false;
-    if (locationSubscription) locationSubscription.remove();
-  };
-}, [autoPlay, audioLanguage.id, audioPlayer, visitorSessionId]);
+      locationSubscription = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, distanceInterval: 10 },
+        (location) => {
+          const { latitude, longitude } = location.coords;
+          if (!isActive) return;
+          void fetchNearbySites(latitude, longitude, visitorSessionId, audioLanguage.id).catch((error) => {
+            console.error('Không thể đồng bộ vị trí GPS với backend:', error);
+          });
+          handleGeofenceLocation(location.coords);
+        }
+      );
+    };
+
+    void startTracking().catch((error) => {
+      console.error('Không thể khởi động theo dõi GPS:', error);
+    });
+
+    return () => {
+      isActive = false;
+      if (locationSubscription) locationSubscription.remove();
+    };
+  }, [autoPlay, audioLanguage.id, handleGeofenceLocation, visitorSessionId]);
 
   useEffect(() => {
     let isActive = true;
@@ -353,7 +356,7 @@ useEffect(() => {
     setMiniPlayerDismissed(false);
     if (activeTab === 'map') setMapAudioSiteId(selectedSite.id);
     setPendingAutoPlaySiteId(null);
-    showToast(`Mô phỏng đã đến gần ${selectedSite.name}: đang phát thuyết minh.`);
+    showToast(`Đang phát thuyết minh tại ${selectedSite.name}.`);
   }, [activeTab, audioPlayer, pendingAutoPlaySiteId, readyAudioSiteId, selectedSite?.audioUrl, selectedSite?.id]);
 
   const showToast = (message) => {
@@ -413,17 +416,6 @@ useEffect(() => {
     if (playing) audioPlayer.pause();
     else audioPlayer.play();
   };
-
-  const simulateArrival = useCallback((site) => {
-    audioPlayer.pause();
-    audioPlayer.replace(null);
-    setAudioError('');
-    setMapAudioSiteId(null);
-    setPendingAutoPlaySiteId(site.id);
-    setSelectedSite(site);
-    setActiveTab('map');
-    setScreen('main');
-  }, [audioPlayer]);
 
   const seekSelectedAudio = (amount) => {
     const duration = audioStatus.duration || durationSeconds(selectedSite?.duration || '00:00');
@@ -569,7 +561,8 @@ useEffect(() => {
               onLanguage={() => openLanguagePicker('app')}
               onAudioLanguage={() => openLanguagePicker('audio')}
               onOpenSite={openDetail}
-              onSimulateArrival={simulateArrival}
+              onGeofenceLocation={handleGeofenceLocation}
+              onSimulationActiveChange={handleSimulationActiveChange}
               mapAudioSiteId={mapAudioSiteId}
               mapAudioPending={pendingAutoPlaySiteId === selectedSite?.id}
               mapAudioPlaying={playing}
@@ -1118,7 +1111,8 @@ function MapScreen({
   onLanguage,
   onAudioLanguage,
   onOpenSite,
-  onSimulateArrival,
+  onGeofenceLocation,
+  onSimulationActiveChange,
   mapAudioSiteId,
   mapAudioPending,
   mapAudioPlaying,
@@ -1144,6 +1138,15 @@ function MapScreen({
   const realUserLocationRef = useRef(null);
   const autoLocateStarted = useRef(false);
   const firstMappedSite = siteList.find((site) => site.latitude != null && site.longitude != null);
+
+  const updateSimulationPosition = useCallback((position) => {
+    const simulatedPosition = { ...position, simulated: true };
+    setSimulationLocation(simulatedPosition);
+    const matchedSite = onGeofenceLocation(simulatedPosition, 'simulation');
+    if (matchedSite) setSelected(matchedSite);
+  }, [onGeofenceLocation]);
+
+  useEffect(() => () => onSimulationActiveChange(false), [onSimulationActiveChange]);
 
   const getCurrentLocation = async () => {
     const permissionResult = await Location.requestForegroundPermissionsAsync();
@@ -1234,7 +1237,7 @@ function MapScreen({
         latitude: Number(selected.latitude),
         longitude: Number(selected.longitude),
       };
-      const radiusMeters = Number(selected.radius ?? 100);
+      const radiusMeters = getSiteGeofenceRadius(selected);
       const findRouteApproachToSite = (coordinates) => {
         if (!coordinates || coordinates.length < 2) return null;
 
@@ -1455,7 +1458,8 @@ function MapScreen({
         );
       }
       const stepCount = Math.max(12, Math.min(24, Math.ceil(route.distance / 3)));
-      setSimulationLocation({ ...routeStart, simulated: true });
+      onSimulationActiveChange(true);
+      updateSimulationPosition(routeStart);
       setRouteInfo({
         distance: formatRouteDistance(route.distance),
         duration: formatRouteDuration(route.duration),
@@ -1486,17 +1490,15 @@ function MapScreen({
     const timer = setTimeout(() => {
       const nextStep = simulationInfo.step + 1;
       if (nextStep >= simulationInfo.stepCount) {
-        const { site } = simulationInfo;
         const routeEnd = simulationInfo.coordinates[simulationInfo.coordinates.length - 1];
-        setSimulationLocation({
+        updateSimulationPosition({
           latitude: routeEnd[1],
           longitude: routeEnd[0],
-          simulated: true,
         });
+        onSimulationActiveChange(false);
         setSimulationInfo((current) => current
           ? { ...current, step: current.stepCount, status: 'arrived' }
           : current);
-        onSimulateArrival(site);
         return;
       }
 
@@ -1517,16 +1519,17 @@ function MapScreen({
       const endCoordinate = simulationInfo.coordinates[routeIndex + 1];
       const longitude = startCoordinate[0] + (endCoordinate[0] - startCoordinate[0]) * segmentProgress;
       const latitude = startCoordinate[1] + (endCoordinate[1] - startCoordinate[1]) * segmentProgress;
-      setSimulationLocation({ latitude, longitude, simulated: true });
+      updateSimulationPosition({ latitude, longitude });
       setSimulationInfo((current) => current
         ? { ...current, step: nextStep }
         : current);
     }, 650);
 
     return () => clearTimeout(timer);
-  }, [onSimulateArrival, simulationInfo]);
+  }, [onSimulationActiveChange, simulationInfo, updateSimulationPosition]);
 
   const stopSimulation = () => {
+    onSimulationActiveChange(false);
     setSimulationInfo(null);
     setSimulationLocation(null);
     setRouteInfo(null);
@@ -2380,19 +2383,6 @@ function formatRouteDuration(seconds) {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes ? `${hours} giờ ${remainingMinutes} phút` : `${hours} giờ`;
-}
-
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  if (![lat1, lon1, lat2, lon2].every((value) => Number.isFinite(value))) return 99999;
-  const R = 6371e3; // Bán kính trái đất (mét)
-  const rad = Math.PI / 180;
-  const dLat = (lat2 - lat1) * rad;
-  const dLon = (lon2 - lon1) * rad;
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1 * rad) * Math.cos(lat2 * rad) *
-            Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c; 
 }
 
 function normalizeSearchText(value) {
