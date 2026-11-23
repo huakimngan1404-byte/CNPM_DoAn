@@ -308,7 +308,6 @@ class SiteRepository:
                 "$set": updates,
                 "$setOnInsert": {
                     "is_hidden": False,
-                    "narration_status": "draft",
                 },
             },
             upsert=True,

@@ -24,6 +24,31 @@ def test_mp3_validation_requires_a_valid_mpeg_frame():
 
 
 @pytest.mark.asyncio
+async def test_new_narration_upsert_sets_status_only_once(monkeypatch):
+    translations = SimpleNamespace(
+        find_one=AsyncMock(return_value=None),
+        update_one=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        site_repository,
+        "db",
+        SimpleNamespace(translations=translations),
+    )
+
+    await SiteRepository().save_narration(
+        "test-site",
+        "vi",
+        "Source text",
+        "Translated description",
+        datetime.now(timezone.utc),
+    )
+
+    update = translations.update_one.await_args.args[1]
+    assert update["$set"]["narration_status"] == "draft"
+    assert "narration_status" not in update["$setOnInsert"]
+
+
+@pytest.mark.asyncio
 async def test_only_public_visitor_playback_is_recorded():
     repo = SimpleNamespace(
         get_public_narration=AsyncMock(return_value={"audio_url": "/api/audio/files/test"}),
