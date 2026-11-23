@@ -1040,8 +1040,7 @@ function NarrationsPage({ notify, languages }) {
       },
     }));
 
-  const saveNarration = async (formData, reportProgress) => {
-    reportProgress('Đang lưu nội dung bài thuyết minh…');
+  const saveNarration = async (formData) => {
     if (editingNarration) {
       await updateNarration(
         editingNarration.site_code,
@@ -1051,23 +1050,11 @@ function NarrationsPage({ notify, languages }) {
     } else {
       await createNarration(formData);
     }
-    try {
-      reportProgress('Đang tạo audio cho bài thuyết minh…');
-      const generatedNarration = await generateSiteNarration(formData.site_code, formData.lang);
-      if (typeof generatedNarration.audio_url !== 'string' || !generatedNarration.audio_url) {
-        throw new Error('Backend chưa trả về file audio.');
-      }
-    } catch (error) {
-      try {
-        await refreshNarrations();
-      } catch (refreshError) {
-        setActionError(`Đã lưu nội dung nhưng không tạo được audio và không tải lại danh sách: ${refreshError.message}`);
-      }
-      throw new Error(`Đã lưu nội dung nhưng chưa tạo được audio: ${error.message}`);
-    }
     setIsModalOpen(false);
     setActionError('');
-    notify(editingNarration ? 'Đã cập nhật bài thuyết minh.' : 'Đã thêm bài thuyết minh.');
+    notify(editingNarration
+      ? 'Đã lưu nội dung. Nếu nội dung thay đổi, hãy tạo lại audio trước khi công khai.'
+      : 'Đã thêm bài ở trạng thái Bản nháp. Nhấn nghe thử để tạo audio.');
     try {
       await refreshNarrations();
     } catch (error) {
@@ -1160,22 +1147,32 @@ function NarrationsPage({ notify, languages }) {
       if (!item.site_code) {
         throw new Error(`Không tìm thấy mã di tích "${item.site_name}" trong Backend.`);
       }
-      const narration = await generateSiteNarration(
-        item.site_code,
-        item.language.code,
-      );
-      if (currentRequest !== requestId.current) return;
-      if (!narration.audio_url) {
+      let audioUrl = item.has_audio && typeof item.audio_url === 'string'
+        ? item.audio_url
+        : '';
+      let generatedAudio = false;
+      if (!audioUrl) {
+        const narration = await generateSiteNarration(
+          item.site_code,
+          item.language.code,
+        );
+        if (currentRequest !== requestId.current) return;
+        audioUrl = narration.audio_url;
+        generatedAudio = true;
+      }
+      if (!audioUrl) {
         throw new Error('Backend chưa tạo file audio cho bài thuyết minh này.');
       }
-      const resolvedAudioUrl = narration.audio_url.startsWith('http')
-        ? narration.audio_url
-        : `${apiBaseUrl}${narration.audio_url}`;
+      const resolvedAudioUrl = /^https?:\/\//i.test(audioUrl)
+        ? audioUrl
+        : `${apiBaseUrl}${audioUrl.startsWith('/') ? '' : '/'}${audioUrl}`;
       setAudioUrl(resolvedAudioUrl);
       setActiveId(id);
-      refreshNarrations().catch((error) => {
-        setActionError(`Đã tạo audio nhưng không thể tải lại danh sách: ${error.message}`);
-      });
+      if (generatedAudio) {
+        refreshNarrations().catch((error) => {
+          setActionError(`Đã tạo audio nhưng không thể tải lại danh sách: ${error.message}`);
+        });
+      }
     } catch (error) {
       if (currentRequest === requestId.current) {
         setAudioError(error.message);
@@ -1299,13 +1296,13 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
   };
 
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving && !generating) onClose(); }}><form className="site-modal narration-modal" onSubmit={submit}>
-    <div className="modal-head"><div><span className="modal-icon"><BookOpen size={18} /></span><div><h2>{narration ? 'Chỉnh sửa bài thuyết minh' : 'Thêm bài thuyết minh'}</h2><p>Nội dung được lưu vào Backend và dùng cho thuyết minh/audio.</p></div></div><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose} disabled={saving || generating}><X size={19} /></button></div>
+    <div className="modal-head"><div><span className="modal-icon"><BookOpen size={18} /></span><div><h2>{narration ? 'Chỉnh sửa bài thuyết minh' : 'Thêm bài thuyết minh'}</h2><p>Nội dung được lưu vào Backend; audio có thể tạo riêng sau khi lưu.</p></div></div><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose} disabled={saving || generating}><X size={19} /></button></div>
     <div className="modal-body">
       <label>Di tích <em>*</em><select value={siteCode} disabled={Boolean(narration) || saving || generating} onChange={(event) => setSiteCode(event.target.value)}>{sites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}</select></label>
       <label>Ngôn ngữ <em>*</em><select value={lang} disabled={Boolean(narration) || saving || generating} onChange={(event) => setLang(event.target.value)}>{availableLanguages.map((language) => <option key={language.code} value={language.code}>{language.name} · {language.code.toUpperCase()}</option>)}</select></label>
       {!narration && <p className="narration-generate-note">{canGenerateTranslation
-        ? 'Có thể tự nhập nội dung hoặc tạo bản dịch từ mô tả tiếng Việt của di tích. Nội dung và audio sẽ được lưu vào Backend.'
-        : 'Tiếng Việt là nội dung gốc: vui lòng tự viết hoặc nhập nội dung tiếng Việt tại đây.'}</p>}
+        ? 'Có thể tự nhập nội dung hoặc tạo bản dịch từ mô tả tiếng Việt. Nội dung sẽ được lưu thành Bản nháp; tạo audio riêng bằng nút nghe thử sau khi lưu.'
+        : 'Tiếng Việt là nội dung gốc: nhập nội dung tại đây. Nội dung sẽ được lưu thành Bản nháp.'}</p>}
       {(saving || generating) && <div className="narration-loading" role="status" aria-live="polite">
         <LoaderCircle className="narration-spinner" size={19} />
         <div>
