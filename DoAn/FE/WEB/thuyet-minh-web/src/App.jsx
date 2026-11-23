@@ -453,7 +453,11 @@ function Dashboard({ sites, languages, onNavigate }) {
         setActiveVisitors(count);
         setVisitorError('');
       } catch (error) {
-        if (active) setVisitorError(error.message);
+        if (!active) return;
+        setActiveVisitors(null);
+        setVisitorError(
+          error instanceof Error ? error.message : 'Không thể lấy số người đang truy cập.',
+        );
       }
     };
     refreshActiveVisitors();
@@ -571,6 +575,7 @@ function Dashboard({ sites, languages, onNavigate }) {
             <StatCard label="Bài thuyết minh" value={narrationCount === null ? '—' : String(narrationCount)} icon={AudioLines} iconTone="violet" />
             <StatCard label="Ngôn ngữ hỗ trợ" value={String(activeLanguages.length)} icon={Globe2} iconTone="green" />
           </section>
+          {visitorError && <div className="dashboard-data-error" role="alert">Không tải được số người đang truy cập: {visitorError}</div>}
           {narrationLoadError && <div className="dashboard-data-error" role="alert">Không tải được số bài thuyết minh: {narrationLoadError}</div>}
 
           <div className="panel listening-panel">

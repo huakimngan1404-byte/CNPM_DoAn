@@ -13,7 +13,7 @@ vi.stubGlobal('window', {
 vi.stubGlobal('sessionStorage', storage);
 vi.stubGlobal('fetch', vi.fn());
 
-const { createSite } = await import('./api.js');
+const { createSite, fetchActiveVisitors } = await import('./api.js');
 
 const validSite = () => ({
   code: 'test-site',
@@ -80,5 +80,16 @@ describe('admin API errors', () => {
       code: 'NETWORK_ERROR',
       message: expect.stringContaining('Không nhận được phản hồi'),
     });
+  });
+
+  it('surfaces active visitor failures and returns the fresh count on a later request', async () => {
+    fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await expect(fetchActiveVisitors()).rejects.toThrow('Không nhận được phản hồi');
+
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ active_visitors: 4 }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    await expect(fetchActiveVisitors()).resolves.toBe(4);
   });
 });
