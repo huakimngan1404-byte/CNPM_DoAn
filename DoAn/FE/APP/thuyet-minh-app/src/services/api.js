@@ -51,7 +51,11 @@ export const heartbeatVisitor = (sessionId) => updateVisitorSession('heartbeat',
 
 export const leaveVisitor = (sessionId) => updateVisitorSession('leave', sessionId, true);
 
-export const recordNarrationListen = async (siteCode, language) => {
+export const recordNarrationListen = async (
+    siteCode,
+    language,
+    { sessionId, playbackId, source = 'visitor' } = {},
+) => {
     const device = Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'web';
     const response = await fetch(`${apiOrigin}/api/listens/`, {
         method: 'POST',
@@ -60,6 +64,9 @@ export const recordNarrationListen = async (siteCode, language) => {
             site_code: siteCode,
             language,
             device,
+            session_id: sessionId,
+            playback_id: playbackId,
+            source,
         }),
     });
     if (!response.ok) {

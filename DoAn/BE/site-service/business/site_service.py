@@ -8,7 +8,7 @@ import re
 import httpx
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from zoneinfo import ZoneInfo
-from data.site_repository import SiteRepository
+from data.site_repository import SiteRepository, narration_status
 
 ACTIVE_VISITOR_TTL_SECONDS = 45
 HO_CHI_MINH_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -114,6 +114,42 @@ class SiteService:
         if not await self.repo.set_narration_hidden(site_code, lang, is_hidden):
             raise LookupError("Không tìm thấy bài thuyết minh.")
 
+    async def set_narration_status(self, site_code: str, lang: str, status: str):
+        if status not in {"draft", "ready", "published"}:
+            raise ValueError("Trạng thái bài thuyết minh không hợp lệ.")
+        narration = await self.repo.get_narration(site_code, lang)
+        if not narration:
+            raise LookupError("Không tìm thấy bài thuyết minh.")
+        if narration.get("is_hidden") is True or narration.get("narration_status") == "hidden":
+            raise ValueError("Hãy hiện bài thuyết minh trước khi đổi trạng thái.")
+        if status in {"ready", "published"} and not (
+            isinstance(narration.get("description"), str)
+            and narration["description"].strip()
+        ):
+            raise ValueError("Bài thuyết minh cần có nội dung trước khi chuyển trạng thái.")
+        if status in {"ready", "published"} and not await self.repo.has_valid_narration_audio(narration):
+            raise ValueError("Bài thuyết minh cần có nội dung và file MP3 hợp lệ.")
+        if not await self.repo.set_narration_status(site_code, lang, status):
+            raise LookupError("Không tìm thấy bài thuyết minh.")
+
+    async def mark_narration_ready(self, site_code: str, lang: str):
+        narration = await self.repo.get_narration(site_code, lang)
+        if not narration:
+            raise LookupError("Không tìm thấy bài thuyết minh.")
+        if not isinstance(narration.get("description"), str) or not narration["description"].strip():
+            raise ValueError("Bài thuyết minh chưa có nội dung hợp lệ.")
+        if not await self.repo.has_valid_narration_audio(narration):
+            raise ValueError("Bài thuyết minh chưa có file MP3 hợp lệ.")
+        current_status = narration_status(narration, True)
+        if current_status == "hidden":
+            if not await self.repo.set_narration_status(site_code, lang, "ready"):
+                raise LookupError("Không tìm thấy bài thuyết minh.")
+            return
+        if current_status == "published":
+            return
+        if not await self.repo.set_narration_status(site_code, lang, "ready"):
+            raise LookupError("Không tìm thấy bài thuyết minh.")
+
     async def delete_narration(self, site_code: str, lang: str):
         if not await self.repo.delete_narration(site_code, lang):
             raise LookupError("Không tìm thấy bài thuyết minh.")
@@ -144,10 +180,27 @@ class SiteService:
                 del self.active_visitors[session_id]
             return len(self.active_visitors)
 
-    async def record_listen(self, site_code: str, language: str, device: str):
-        if not await self.repo.get_site_by_code(site_code):
-            raise LookupError("Không tìm thấy di tích.")
-        await self.repo.record_listen(site_code, language, device)
+    async def record_listen(
+        self,
+        site_code: str,
+        language: str,
+        device: str,
+        playback_id: str | None = None,
+        session_id: str | None = None,
+        source: str = "visitor",
+    ):
+        if source != "visitor":
+            return False
+        if not await self.repo.get_public_narration(site_code, language):
+            raise LookupError("Bài thuyết minh chưa được công khai hoặc không có MP3 hợp lệ.")
+        return await self.repo.record_listen(
+            site_code,
+            language,
+            device,
+            playback_id,
+            session_id,
+            source,
+        )
 
     async def get_listen_stats(
         self,

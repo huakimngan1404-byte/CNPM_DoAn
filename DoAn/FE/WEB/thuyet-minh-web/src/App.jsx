@@ -30,6 +30,7 @@ import {
   recordNarrationListen,
   setSiteHidden,
   setNarrationHidden,
+  setNarrationStatus,
   updateSite,
   updateSiteGeofenceRadius,
   updateLanguage,
@@ -417,6 +418,7 @@ function Dashboard({ sites, languages, onNavigate }) {
   const [activityError, setActivityError] = useState('');
   const [featuredPage, setFeaturedPage] = useState(0);
   const [listenPeriod, setListenPeriod] = useState('day');
+  const [listenDevice, setListenDevice] = useState('all');
   const [listenDate, setListenDate] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -429,7 +431,9 @@ function Dashboard({ sites, languages, onNavigate }) {
     fetchAdminNarrations()
       .then((narrations) => {
         if (!active) return;
-        setNarrationCount(narrations.filter((narration) => narration.is_active).length);
+        setNarrationCount(narrations.filter((narration) => (
+          narration.narration_status === 'published' && narration.has_audio
+        )).length);
         setNarrationLoadError('');
       })
       .catch((error) => {
@@ -486,7 +490,7 @@ function Dashboard({ sites, languages, onNavigate }) {
     let active = true;
     const refreshListenStats = async () => {
       try {
-        const stats = await fetchListenStats(listenPeriod, requestedListenDate, 'all');
+        const stats = await fetchListenStats(listenPeriod, requestedListenDate, listenDevice);
         if (!active) return;
         setListenStats(stats);
         setListenError('');
@@ -503,7 +507,7 @@ function Dashboard({ sites, languages, onNavigate }) {
       active = false;
       window.clearInterval(interval);
     };
-  }, [listenPeriod, requestedListenDate]);
+  }, [listenDevice, listenPeriod, requestedListenDate]);
 
   const chartBuckets = listenStats?.buckets ?? [];
   const chartMaximum = Math.max(1, ...chartBuckets.map((bucket) => bucket.count));
@@ -546,6 +550,12 @@ function Dashboard({ sites, languages, onNavigate }) {
   const periodDescription = listenPeriod === 'day'
     ? new Date(`${listenDate}T12:00:00`).toLocaleDateString('vi-VN')
     : new Date(`${requestedListenDate}-01T12:00:00`).toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
+  const listenDeviceLabel = {
+    all: 'Tất cả thiết bị',
+    web: 'Web công khai',
+    android: 'App Android',
+    ios: 'App iOS',
+  }[listenDevice];
 
   return (
     <div className="dashboard-content">
@@ -565,8 +575,19 @@ function Dashboard({ sites, languages, onNavigate }) {
 
           <div className="panel listening-panel">
             <div className="panel-heading">
-              <div><h3>Lượt nghe thuyết minh</h3><p>Tổng lượt nghe trên tất cả thiết bị</p></div>
+              <div><h3>Lượt nghe thuyết minh</h3><p>Lượt nghe thực tế từ khách tham quan</p></div>
               <div className="listen-filters">
+                <select
+                  className="select-button"
+                  aria-label="Thiết bị thống kê"
+                  value={listenDevice}
+                  onChange={(event) => setListenDevice(event.target.value)}
+                >
+                  <option value="all">Tất cả thiết bị</option>
+                  <option value="web">Web công khai</option>
+                  <option value="android">App Android</option>
+                  <option value="ios">App iOS</option>
+                </select>
                 <select
                   className="select-button"
                   aria-label="Khoảng thời gian thống kê"
@@ -603,7 +624,7 @@ function Dashboard({ sites, languages, onNavigate }) {
             </div>
             <div className="chart-bottom">
               <span>{listenError || `Tổng cộng ${listenStats?.total?.toLocaleString('vi-VN') ?? '—'} lượt nghe trong kỳ đã chọn.`}</span>
-              <span>Tất cả thiết bị</span>
+              <span>{listenDeviceLabel}</span>
             </div>
           </div>
         </div>
@@ -655,10 +676,17 @@ function ListenerDemo({ siteCode, siteName }) {
   const [narrationError, setNarrationError] = useState('');
   const [narrationAttempt, setNarrationAttempt] = useState(0);
   const [audioPlaybackError, setAudioPlaybackError] = useState('');
+  const [visitorSessionId] = useState(createVisitorSessionId);
   const countedAudioUrlRef = useRef('');
+  const playbackIdRef = useRef(null);
   const selectedLanguageInfo = narrationLanguages.find(
     (language) => language.code === selectedLanguage,
   );
+
+  useEffect(() => {
+    countedAudioUrlRef.current = '';
+    playbackIdRef.current = null;
+  }, [siteCode, selectedLanguage]);
 
   useEffect(() => {
     let active = true;
@@ -681,16 +709,14 @@ function ListenerDemo({ siteCode, siteName }) {
   }, [narrationLanguages, selectedLanguage]);
 
   useEffect(() => {
-    const sessionId = createVisitorSessionId();
-
     const sendHeartbeat = () => {
       if (document.visibilityState === 'hidden') return;
-      heartbeatVisitor(sessionId).catch((error) => {
+      heartbeatVisitor(visitorSessionId).catch((error) => {
         console.error('Không thể cập nhật phiên nghe trực tiếp:', error);
       });
     };
     const leave = () => {
-      leaveVisitor(sessionId).catch((error) => {
+      leaveVisitor(visitorSessionId).catch((error) => {
         console.error('Không thể kết thúc phiên nghe trực tiếp:', error);
       });
     };
@@ -709,7 +735,7 @@ function ListenerDemo({ siteCode, siteName }) {
       window.removeEventListener('pagehide', leave);
       leave();
     };
-  }, []);
+  }, [visitorSessionId]);
 
   useEffect(() => {
     let active = true;
@@ -783,11 +809,18 @@ function ListenerDemo({ siteCode, siteName }) {
               onPlay={() => {
                 if (countedAudioUrlRef.current === audioUrl) return;
                 countedAudioUrlRef.current = audioUrl;
-                recordNarrationListen(siteCode, selectedLanguage, 'web').catch((error) => {
+                playbackIdRef.current = createVisitorSessionId();
+                recordNarrationListen(siteCode, selectedLanguage, 'web', {
+                  sessionId: visitorSessionId,
+                  playbackId: playbackIdRef.current,
+                }).catch((error) => {
                   console.error('Không thể ghi nhận lượt nghe:', error);
                 });
               }}
-              onEnded={() => { countedAudioUrlRef.current = ''; }}
+              onEnded={() => {
+                countedAudioUrlRef.current = '';
+                playbackIdRef.current = null;
+              }}
               onError={() => setAudioPlaybackError(`Không phát được audio ${selectedLanguageInfo?.name} từ Backend.`)}
             >Trình duyệt không hỗ trợ phát âm thanh.</audio>
           </div>
@@ -838,6 +871,16 @@ function LanguagePills({ codes }) {
 function StatusBadge({ status, isHidden }) {
   const label = isHidden ? 'Đã ẩn' : status;
   return <span className={`status-badge ${isHidden ? 'hidden' : status === 'Đóng cửa' ? 'closed' : 'open'}`}><i />{label}</span>;
+}
+
+function NarrationStatusBadge({ status }) {
+  const labels = {
+    draft: 'Bản nháp',
+    ready: 'Sẵn sàng',
+    published: 'Công khai',
+    hidden: 'Đã ẩn',
+  };
+  return <span className={`status-badge narration-status ${status}`}><i />{labels[status] || labels.draft}</span>;
 }
 
 function ActivityItem({ icon: Icon, tone, title, description, time }) {
@@ -908,7 +951,6 @@ function NarrationsPage({ notify, languages }) {
   const [audioError, setAudioError] = useState('');
   const audioRef = useRef(null);
   const requestId = useRef(0);
-  const countedNarrationIdRef = useRef('');
   const canAddNarration = sites.some((site) => !site.isHidden && (
     languages.some((language) => !narrations.some(
       (narration) => narration.site_code === site.code && narration.lang === language.code,
@@ -981,7 +1023,6 @@ function NarrationsPage({ notify, languages }) {
   }, [selectedSiteCode, sites]);
 
   const visibleNarrations = narrations
-    .filter((narration) => narration.is_hidden || (narration.is_active && languages.some((language) => language.code === narration.lang)))
     .filter((narration) => selectedLang === 'Tất cả ngôn ngữ' || narration.language_name === selectedLang)
     .filter((narration) => selectedSiteCode === 'all' || narration.site_code === selectedSiteCode)
     .filter((narration) => (
@@ -1017,6 +1058,11 @@ function NarrationsPage({ notify, languages }) {
         throw new Error('Backend chưa trả về file audio.');
       }
     } catch (error) {
+      try {
+        await refreshNarrations();
+      } catch (refreshError) {
+        setActionError(`Đã lưu nội dung nhưng không tạo được audio và không tải lại danh sách: ${refreshError.message}`);
+      }
       throw new Error(`Đã lưu nội dung nhưng chưa tạo được audio: ${error.message}`);
     }
     setIsModalOpen(false);
@@ -1049,6 +1095,33 @@ function NarrationsPage({ notify, languages }) {
       }
     } catch (error) {
       setActionError(`Không thể ${action} bài thuyết minh: ${error.message}`);
+    }
+  };
+
+  const changeNarrationStatus = async (narration) => {
+    const nextStatus = narration.narration_status === 'ready'
+      ? 'published'
+      : narration.narration_status === 'published'
+        ? 'ready'
+        : 'ready';
+    const action = nextStatus === 'published'
+      ? 'công khai'
+      : narration.narration_status === 'published'
+        ? 'gỡ công khai'
+        : 'đánh dấu sẵn sàng';
+    if (!window.confirm(`Bạn có chắc muốn ${action} bài thuyết minh ${narration.site_name} · ${narration.language_name}?`)) return;
+    try {
+      await setNarrationStatus(narration.site_code, narration.lang, nextStatus);
+      notify(nextStatus === 'published' ? 'Đã công khai bài thuyết minh.' : 'Bài thuyết minh đã sẵn sàng.');
+    } catch (error) {
+      setActionError(`Không thể ${action} bài thuyết minh: ${error.message}`);
+      return;
+    }
+    setActionError('');
+    try {
+      await refreshNarrations();
+    } catch (error) {
+      setActionError(`Đã ${action} bài thuyết minh nhưng không thể tải lại danh sách: ${error.message}`);
     }
   };
 
@@ -1100,6 +1173,9 @@ function NarrationsPage({ notify, languages }) {
         : `${apiBaseUrl}${narration.audio_url}`;
       setAudioUrl(resolvedAudioUrl);
       setActiveId(id);
+      refreshNarrations().catch((error) => {
+        setActionError(`Đã tạo audio nhưng không thể tải lại danh sách: ${error.message}`);
+      });
     } catch (error) {
       if (currentRequest === requestId.current) {
         setAudioError(error.message);
@@ -1127,27 +1203,23 @@ function NarrationsPage({ notify, languages }) {
         const siteIsHidden = sites.find((site) => site.code === item.site_code)?.isHidden;
         return <div className="narration-row" key={item.id}>
           <div className={`narration-icon tone-${index % 4}`}><AudioLines size={19} /></div>
-          <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()}{siteIsHidden && <em>Di tích đã ẩn</em>}{!item.is_active && <em>Ngôn ngữ đã ẩn</em>}{item.is_hidden && <em>Bài đã ẩn</em>}</span><small>{item.description}</small></div>
+          <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()}<i /> <NarrationStatusBadge status={item.narration_status} />{siteIsHidden && <em>Di tích đã ẩn</em>}{!item.is_active && <em>Ngôn ngữ đã ẩn</em>}</span><small>{item.description}</small></div>
           <button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site_name}` : isActive && isPlaying ? `Tạm dừng ${item.site_name}` : `Nghe ${item.site_name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id || item.is_hidden || siteIsHidden} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button>
           <div className="site-row-actions">
             <button className="row-more" aria-label={`Sửa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`Sửa ${item.site_name} · ${item.language_name}`} onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={15} /></button>
+            {!item.is_hidden && item.has_audio && item.narration_status !== 'published' && <button className="row-more visibility-action show-action" aria-label={`${item.narration_status === 'ready' ? 'Công khai' : 'Đánh dấu sẵn sàng'} bài thuyết minh ${item.site_name} · ${item.language_name}`} title={item.narration_status === 'ready' ? 'Công khai bài thuyết minh' : 'Đánh dấu sẵn sàng'} onClick={() => changeNarrationStatus(item)}>
+              <span>{item.narration_status === 'ready' ? 'Công khai' : 'Sẵn sàng'}</span>
+            </button>}
+            {!item.is_hidden && item.narration_status === 'published' && <button className="row-more visibility-action hide-action" aria-label={`Gỡ công khai bài thuyết minh ${item.site_name} · ${item.language_name}`} title="Gỡ công khai bài thuyết minh" onClick={() => changeNarrationStatus(item)}>
+              <span>Gỡ công khai</span>
+            </button>}
             <button className={`row-more visibility-action ${item.is_hidden ? 'show-action' : 'hide-action'}`} aria-label={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh`} onClick={() => toggleNarrationHidden(item)}>
               <span>{item.is_hidden ? 'Hiện' : 'Ẩn'}</span>
             </button>
           </div>
         </div>;
       })}{!loading && visibleNarrations.length === 0 && <div className="empty-state"><Search size={23} /><strong>{narrations.length ? 'Không tìm thấy bài thuyết minh' : 'Chưa có bài thuyết minh'}</strong><span>{narrations.length ? 'Thay đổi từ khóa hoặc bộ lọc để xem các bài hiện có.' : 'Thêm bài mới hoặc tạo bản dịch từ nội dung tiếng Việt.'}</span></div>}</div>
-      <div className="narration-audio-player" hidden={!audioUrl}><strong>{visibleNarrations.find((item) => item.id === activeId)?.site_name}</strong><audio ref={audioRef} controls={Boolean(audioUrl)} preload="none" src={audioUrl || undefined} onPlay={() => {
-      setIsPlaying(true);
-      if (countedNarrationIdRef.current === activeId) return;
-      countedNarrationIdRef.current = activeId;
-      const item = visibleNarrations.find((narration) => narration.id === activeId);
-      if (item) {
-        recordNarrationListen(item.site_code, item.language.code, 'web').catch((error) => {
-          console.error('Không thể ghi nhận lượt nghe:', error);
-        });
-      }
-    }} onPause={() => setIsPlaying(false)} onEnded={() => { setActiveId(''); setIsPlaying(false); countedNarrationIdRef.current = ''; }} onError={() => { if (audioUrl) setAudioError('Không tải được file audio từ Backend.'); }} /></div>
+      <div className="narration-audio-player" hidden={!audioUrl}><strong>{visibleNarrations.find((item) => item.id === activeId)?.site_name}</strong><audio ref={audioRef} controls={Boolean(audioUrl)} preload="none" src={audioUrl || undefined} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => { setActiveId(''); setIsPlaying(false); }} onError={() => { if (audioUrl) setAudioError('Không tải được file audio từ Backend.'); }} /></div>
       {audioError && <p className="listener-audio-warning">{audioError}</p>}
     </section>
     {isModalOpen && <NarrationModal

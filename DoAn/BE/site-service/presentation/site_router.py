@@ -34,6 +34,12 @@ class ListenEvent(BaseModel):
     site_code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     language: str = Field(min_length=2, max_length=10, pattern=r"^[a-z]{2,3}(?:-[A-Za-z0-9]+)*$")
     device: Literal["web", "android", "ios"]
+    playback_id: UUID | None = None
+    session_id: UUID | None = None
+    source: Literal["visitor", "admin_preview", "gps_simulation"] = "visitor"
+
+class NarrationStatusUpdate(BaseModel):
+    narration_status: Literal["draft", "ready", "published"]
 
 class SiteAdminForm(BaseModel):
     code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -130,6 +136,16 @@ async def set_narration_visibility(site_code: str, lang: str, data: VisibilityUp
         raise HTTPException(status_code=404, detail=str(error)) from error
     return {"status": "success"}
 
+@narration_router.patch("/{site_code}/{lang}/status", dependencies=[Depends(require_admin)])
+async def set_narration_status(site_code: str, lang: str, data: NarrationStatusUpdate):
+    try:
+        await service.set_narration_status(site_code, lang, data.narration_status)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": "success", "narration_status": data.narration_status}
+
 @narration_router.post("/", status_code=201, dependencies=[Depends(require_admin)])
 async def create_narration(data: NarrationAdminCreate):
     try:
@@ -177,10 +193,17 @@ async def get_active_visitors():
 @listen_router.post("/", status_code=201)
 async def record_listen(data: ListenEvent):
     try:
-        await service.record_listen(data.site_code, data.language, data.device)
+        recorded = await service.record_listen(
+            data.site_code,
+            data.language,
+            data.device,
+            str(data.playback_id) if data.playback_id else None,
+            str(data.session_id) if data.session_id else None,
+            data.source,
+        )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    return {"status": "recorded"}
+    return {"status": "recorded" if recorded else "ignored"}
 
 @listen_router.get("/stats", dependencies=[Depends(require_admin)])
 async def get_listen_stats(
@@ -238,28 +261,8 @@ async def get_admin_sites():
 
 @router.get("/{code}/narration")
 async def get_site_narration(code: str, lang: str = "vi"):
-    site = await service.repo.get_site_by_code(code)
-    language = await service.repo.get_language(lang)
-    if (
-        not site
-        or site.get("is_hidden") is True
-        or not language
-        or language.get("is_active") is False
-        or language.get("is_deleted") is True
-    ):
-        raise HTTPException(status_code=404, detail="Chưa có bài thuyết minh cho ngôn ngữ này.")
-
-    narration = await service.repo.get_narration(code, lang)
-    if (
-        not narration
-        or narration.get("is_hidden") is True
-        or not narration.get("audio_asset_id")
-        or not narration.get("audio_url")
-    ):
-        raise HTTPException(status_code=404, detail="Chưa có bài thuyết minh cho ngôn ngữ này.")
-
-    ready_audio_ids = await service.repo.get_ready_audio_asset_ids([narration])
-    if narration["audio_asset_id"] not in ready_audio_ids:
+    narration = await service.repo.get_public_narration(code, lang)
+    if not narration:
         raise HTTPException(status_code=404, detail="Chưa có bài thuyết minh cho ngôn ngữ này.")
 
     return {
@@ -303,6 +306,17 @@ async def generate_site_narration(
             status_code=response.status_code,
             detail=detail or "Dịch vụ dịch không thể tạo bài thuyết minh.",
         )
+    if not isinstance(result, dict) or not result.get("audio_url"):
+        raise HTTPException(
+            status_code=502,
+            detail="Dịch vụ dịch chưa tạo được file MP3 hợp lệ.",
+        )
+    try:
+        await service.mark_narration_ready(code, data.lang)
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
     return result
 
 @router.post("/", dependencies=[Depends(require_admin)])

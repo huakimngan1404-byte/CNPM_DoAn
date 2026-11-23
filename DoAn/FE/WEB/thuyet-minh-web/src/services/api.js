@@ -234,6 +234,8 @@ export async function fetchAdminNarrations() {
     || typeof narration?.language_name !== 'string'
     || typeof narration?.description !== 'string'
     || typeof narration?.is_active !== 'boolean'
+    || typeof narration?.has_audio !== 'boolean'
+    || !['draft', 'ready', 'published', 'hidden'].includes(narration?.narration_status)
   ))) {
     throw new Error('Backend trả về danh sách bài thuyết minh không hợp lệ.');
   }
@@ -271,6 +273,14 @@ export async function setNarrationHidden(siteCode, lang, isHidden) {
   }, true);
 }
 
+export async function setNarrationStatus(siteCode, lang, narrationStatus) {
+  return requestSite(`/api/narrations/${encodeURIComponent(siteCode)}/${encodeURIComponent(lang)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ narration_status: narrationStatus }),
+  }, true);
+}
+
 export async function fetchRecentActivity() {
   const records = await requestSite('/api/sites/activity', {}, true);
   if (!Array.isArray(records)) {
@@ -287,7 +297,12 @@ export async function fetchActiveVisitors() {
   return result.active_visitors;
 }
 
-export async function recordNarrationListen(siteCode, language, device = 'web') {
+export async function recordNarrationListen(
+  siteCode,
+  language,
+  device = 'web',
+  { sessionId, playbackId, source = 'visitor' } = {},
+) {
   return requestSite('/api/listens/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -295,6 +310,9 @@ export async function recordNarrationListen(siteCode, language, device = 'web') 
       site_code: siteCode,
       language,
       device,
+      session_id: sessionId,
+      playback_id: playbackId,
+      source,
     }),
   });
 }

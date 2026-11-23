@@ -1,6 +1,7 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 from datetime import datetime, timezone
+from pymongo.errors import DuplicateKeyError
 
 MONGO_URL = (
     os.getenv("MONGO_URI")
@@ -10,6 +11,51 @@ MONGO_URL = (
 )
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[os.getenv("MONGO_DATABASE", "district1_historical_db")]
+
+def has_valid_mp3_data(data):
+    if not isinstance(data, bytes) or len(data) < 4:
+        return False
+
+    offset = 0
+    if data.startswith(b"ID3"):
+        if len(data) < 10:
+            return False
+        tag_size = sum(
+            (data[index] & 0x7F) << shift
+            for index, shift in zip(range(6, 10), (21, 14, 7, 0))
+        )
+        offset = 10 + tag_size + (10 if data[5] & 0x10 else 0)
+
+    frame_start = data.find(b"\xff", offset)
+    while frame_start != -1 and frame_start <= len(data) - 4:
+        header = int.from_bytes(data[frame_start:frame_start + 4], "big")
+        version = (header >> 19) & 0x3
+        layer = (header >> 17) & 0x3
+        bitrate = (header >> 12) & 0xF
+        sample_rate = (header >> 10) & 0x3
+        if (
+            (header >> 21) == 0x7FF
+            and version != 0x1
+            and layer != 0
+            and bitrate not in (0, 0xF)
+            and sample_rate != 0x3
+        ):
+            return True
+        frame_start = data.find(b"\xff", frame_start + 1)
+    return False
+
+
+def narration_status(record, has_audio):
+    if record.get("is_hidden") is True or record.get("narration_status") == "hidden":
+        return "hidden"
+
+    status = record.get("narration_status")
+    if status not in {"draft", "ready", "published"}:
+        status = "published" if has_audio else "draft"
+    if status in {"ready", "published"} and not has_audio:
+        return "draft"
+    return status
+
 
 DEFAULT_SITES = (
     {
@@ -110,9 +156,18 @@ class SiteRepository:
                 "_id": {"$in": list(asset_ids)},
                 "data": {"$type": "binData"},
             },
-            {"_id": 1},
+            {"_id": 1, "data": 1, "content_type": 1},
         )
-        return {asset["_id"] async for asset in cursor}
+        ready_ids = set()
+        async for asset in cursor:
+            content_type = asset.get("content_type", "audio/mpeg")
+            if (
+                isinstance(content_type, str)
+                and content_type.split(";", 1)[0].strip().lower() in {"audio/mpeg", "audio/mp3"}
+                and has_valid_mp3_data(asset.get("data"))
+            ):
+                ready_ids.add(asset["_id"])
+        return ready_ids
 
     async def ensure_language_catalog(self):
         default_codes = [language["code"] for language in DEFAULT_LANGUAGES]
@@ -149,10 +204,6 @@ class SiteRepository:
         cursor = db.translations.find({}).sort("updated_at", -1)
         translations = [record async for record in cursor]
         ready_audio_ids = await self.get_ready_audio_asset_ids(translations)
-        translations = [
-            record for record in translations
-            if record.get("audio_asset_id") in ready_audio_ids
-        ]
         site_codes = {record.get("site_code") for record in translations if record.get("site_code")}
         language_codes = {record.get("lang") for record in translations if record.get("lang")}
         sites = {}
@@ -173,27 +224,50 @@ class SiteRepository:
                     {"_id": 1, "name": 1, "flag": 1, "is_active": 1, "is_deleted": 1},
                 )
             }
-        return [
-            {
+        records = []
+        for record in translations:
+            if not record.get("site_code") or not record.get("lang"):
+                continue
+            has_audio = record.get("audio_asset_id") in ready_audio_ids
+            records.append({
                 "site_code": record.get("site_code", ""),
                 "site_name": sites.get(record.get("site_code"), {}).get("name", record.get("site_code", "")),
                 "lang": record.get("lang", ""),
-                "audio_url": record["audio_url"],
-                "has_audio": True,
+                "audio_url": record.get("audio_url") if has_audio else None,
+                "has_audio": has_audio,
                 "language_name": languages.get(record.get("lang"), {}).get("name", record.get("lang", "").upper()),
                 "language_flag": languages.get(record.get("lang"), {}).get("flag", ""),
                 "is_active": languages.get(record.get("lang"), {}).get("is_active", True)
                 and not languages.get(record.get("lang"), {}).get("is_deleted", False),
                 "is_hidden": record.get("is_hidden", False),
+                "narration_status": narration_status(record, has_audio),
                 "description": record.get("description", ""),
                 "updated_at": record.get("updated_at").isoformat() if record.get("updated_at") else None,
-            }
-            for record in translations
-            if record.get("site_code") and record.get("lang")
-        ]
+            })
+        return records
 
     async def get_narration(self, site_code: str, lang: str):
         return await db.translations.find_one({"site_code": site_code, "lang": lang})
+
+    async def get_public_narration(self, site_code: str, lang: str):
+        site = await self.get_site_by_code(site_code)
+        language = await self.get_language(lang)
+        if (
+            not site
+            or site.get("is_hidden") is True
+            or not language
+            or language.get("is_active") is False
+            or language.get("is_deleted") is True
+        ):
+            return None
+
+        record = await self.get_narration(site_code, lang)
+        if not record or narration_status(
+            record,
+            await self.has_valid_narration_audio(record),
+        ) != "published":
+            return None
+        return record
 
     async def save_narration(
         self,
@@ -205,7 +279,12 @@ class SiteRepository:
     ):
         existing = await db.translations.find_one(
             {"site_code": site_code, "lang": lang},
-            {"_id": 0, "description": 1},
+            {
+                "_id": 0,
+                "description": 1,
+                "is_hidden": 1,
+                "narration_status": 1,
+            },
         )
         updates = {
             "site_code": site_code,
@@ -216,16 +295,99 @@ class SiteRepository:
         }
         if not existing or existing.get("description") != description:
             updates.update({"audio_asset_id": None, "audio_url": None})
+            if existing and existing.get("is_hidden") is True:
+                updates.update({
+                    "narration_status": "hidden",
+                    "status_before_hidden": "draft",
+                })
+            else:
+                updates["narration_status"] = "draft"
         await db.translations.update_one(
             {"site_code": site_code, "lang": lang},
-            {"$set": updates, "$setOnInsert": {"is_hidden": False}},
+            {
+                "$set": updates,
+                "$setOnInsert": {
+                    "is_hidden": False,
+                    "narration_status": "draft",
+                },
+            },
             upsert=True,
         )
 
     async def set_narration_hidden(self, site_code: str, lang: str, is_hidden: bool):
+        record = await self.get_narration(site_code, lang)
+        if not record:
+            return False
+        ready_audio_ids = await self.get_ready_audio_asset_ids([record])
+        has_audio = record.get("audio_asset_id") in ready_audio_ids
+        current_status = narration_status(record, has_audio)
+        if is_hidden:
+            if current_status == "hidden":
+                result = await db.translations.update_one(
+                    {"site_code": site_code, "lang": lang},
+                    {"$set": {"is_hidden": True, "narration_status": "hidden"}},
+                )
+                return result.matched_count > 0
+            updates = {
+                "is_hidden": True,
+                "narration_status": "hidden",
+                "status_before_hidden": current_status,
+            }
+            result = await db.translations.update_one(
+                {"site_code": site_code, "lang": lang},
+                {"$set": updates},
+            )
+            return result.matched_count > 0
+
+        if current_status != "hidden":
+            await db.translations.update_one(
+                {"site_code": site_code, "lang": lang},
+                {"$set": {"is_hidden": False}},
+            )
+            return True
+
+        restored_status = record.get("status_before_hidden")
+        if restored_status not in {"draft", "ready", "published"}:
+            restored_status = "published" if has_audio else "draft"
+        if restored_status in {"ready", "published"} and not has_audio:
+            restored_status = "draft"
         result = await db.translations.update_one(
             {"site_code": site_code, "lang": lang},
-            {"$set": {"is_hidden": is_hidden}},
+            {
+                "$set": {
+                    "is_hidden": False,
+                    "narration_status": restored_status,
+                },
+                "$unset": {"status_before_hidden": ""},
+            },
+        )
+        return result.matched_count > 0
+
+    async def has_valid_narration_audio(self, record):
+        if not record:
+            return False
+        ready_ids = await self.get_ready_audio_asset_ids([record])
+        return record.get("audio_asset_id") in ready_ids
+
+    async def set_narration_status(self, site_code: str, lang: str, status: str):
+        record = await self.get_narration(site_code, lang)
+        if not record:
+            return False
+        if record.get("is_hidden") is True or record.get("narration_status") == "hidden":
+            updates = {
+                "is_hidden": True,
+                "narration_status": "hidden",
+                "status_before_hidden": status,
+            }
+            update = {"$set": updates}
+        else:
+            update = {
+                "$set": {"narration_status": status},
+                "$unset": {"status_before_hidden": ""},
+            }
+        result = await db.translations.update_one(
+            {"site_code": site_code, "lang": lang},
+            update,
         )
         return result.matched_count > 0
 
@@ -283,16 +445,40 @@ class SiteRepository:
             {"$set": {"is_active": False, "is_deleted": True}},
         )
 
-    async def record_listen(self, site_code: str, language: str, device: str):
-        await db.listening_events.insert_one({
+    async def record_listen(
+        self,
+        site_code: str,
+        language: str,
+        device: str,
+        playback_id: str | None = None,
+        session_id: str | None = None,
+        source: str = "visitor",
+    ):
+        event = {
             "site_code": site_code,
             "language": language,
             "device": device,
+            "source": source,
             "occurred_at": datetime.now(timezone.utc),
-        })
+        }
+        if session_id:
+            event["session_id"] = session_id
+        if playback_id:
+            event["_id"] = playback_id
+            event["playback_id"] = playback_id
+            try:
+                await db.listening_events.insert_one(event)
+            except DuplicateKeyError:
+                return False
+            return True
+        await db.listening_events.insert_one(event)
+        return True
 
     async def get_listen_stats(self, start, end, period: str, device: str):
-        filters = {"occurred_at": {"$gte": start, "$lt": end}}
+        filters = {
+            "occurred_at": {"$gte": start, "$lt": end},
+            "source": "visitor",
+        }
         if device != "all":
             filters["device"] = device
 

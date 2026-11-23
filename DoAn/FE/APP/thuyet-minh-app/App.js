@@ -121,6 +121,8 @@ export default function App() {
   const [hasStartedAudio, setHasStartedAudio] = useState(false);
   const audioLoadAwaitingSiteRef = useRef(null);
   const countedPlaybackRef = useRef(false);
+  const playbackIdRef = useRef(null);
+  const simulatedPlaybackRef = useRef(false);
   const [apiLoading, setApiLoading] = useState(true);
   const [apiError, setApiError] = useState('');
   const openLanguagePicker = (mode = 'app') => {
@@ -130,18 +132,26 @@ export default function App() {
 
   useEffect(() => {
     countedPlaybackRef.current = false;
+    playbackIdRef.current = null;
   }, [selectedSite?.id, audioLanguage.id]);
 
   useEffect(() => {
-    if (!playing || countedPlaybackRef.current || !selectedSite?.code) return;
+    if (!playing || countedPlaybackRef.current || simulatedPlaybackRef.current || !selectedSite?.code) return;
     countedPlaybackRef.current = true;
-    recordNarrationListen(selectedSite.code, audioLanguage.id).catch((error) => {
+    playbackIdRef.current = createVisitorSessionId();
+    recordNarrationListen(selectedSite.code, audioLanguage.id, {
+      sessionId: visitorSessionId,
+      playbackId: playbackIdRef.current,
+    }).catch((error) => {
       console.error('Không thể ghi nhận lượt nghe:', error);
     });
-  }, [audioLanguage.id, playing, selectedSite?.code]);
+  }, [audioLanguage.id, playing, selectedSite?.code, visitorSessionId]);
 
   useEffect(() => {
-    if (audioStatus.didJustFinish) countedPlaybackRef.current = false;
+    if (audioStatus.didJustFinish) {
+      countedPlaybackRef.current = false;
+      playbackIdRef.current = null;
+    }
   }, [audioStatus.didJustFinish]);
 
   const filteredSites = useMemo(() => {
@@ -203,6 +213,8 @@ export default function App() {
 
     activeGeofenceSiteIdRef.current = match.site?.id ?? null;
     if (!match.site) return null;
+    if (source === 'simulation') simulatedPlaybackRef.current = true;
+    else if (match.site.id !== previousSiteId) simulatedPlaybackRef.current = false;
     if (match.site.id === previousSiteId) return match.site;
 
     audioPlayer.pause();
@@ -372,6 +384,7 @@ export default function App() {
   };
 
   const openDetail = (site) => {
+    simulatedPlaybackRef.current = false;
     setHasStartedAudio(false);
     setMiniPlayerDismissed(false);
     setPendingAutoPlaySiteId(null);
@@ -403,7 +416,10 @@ export default function App() {
     setMiniPlayerDismissed(false);
     setHasStartedAudio(true);
     if (playing) audioPlayer.pause();
-    else audioPlayer.play();
+    else {
+      simulatedPlaybackRef.current = false;
+      audioPlayer.play();
+    }
   };
 
   const playMapAudio = (site) => {
@@ -414,7 +430,10 @@ export default function App() {
     setMiniPlayerDismissed(false);
     setHasStartedAudio(true);
     if (playing) audioPlayer.pause();
-    else audioPlayer.play();
+    else {
+      simulatedPlaybackRef.current = false;
+      audioPlayer.play();
+    }
   };
 
   const seekSelectedAudio = (amount) => {
