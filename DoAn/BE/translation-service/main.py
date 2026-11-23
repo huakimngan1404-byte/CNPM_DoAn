@@ -25,6 +25,7 @@ db = client[os.getenv("MONGO_DATABASE", "district1_historical_db")]
 AUDIO_PUBLIC_BASE_URL = (
     os.getenv("AUDIO_PUBLIC_BASE_URL")
     or os.getenv("RENDER_EXTERNAL_URL")
+    # Local-only fallback; physical devices need the reachable service URL set above.
     or "http://localhost:8001"
 ).rstrip("/")
 

@@ -91,7 +91,7 @@ export const fetchActiveLanguages = async () => {
     }));
 };
 
-export const fetchNearbySites = async (lat, lng, lang = 'vi') => {
+export const fetchNearbySites = async (lat, lng, sessionId, lang = 'vi') => {
     const response = await fetch(`${apiBaseUrl}/sync-location`, {
         method: 'POST',
         headers: {
@@ -99,7 +99,7 @@ export const fetchNearbySites = async (lat, lng, lang = 'vi') => {
             'Accept': 'application/json',
         },
         body: JSON.stringify({
-            user_id: 'mobile_user_01',
+            user_id: sessionId,
             lat,
             lng,
             lang,
@@ -122,12 +122,9 @@ export const fetchSiteAudio = async (siteCode, lang = 'vi') => {
         throw new Error('Máy chủ chưa trả về đường dẫn audio cho di tích này.');
     }
 
-    const audioPath = new URL(translation.audio_url, `${translationBaseUrl}/`).pathname;
     return {
         ...translation,
-        audioUrl: translation.audio_url.startsWith('http')
-            ? translation.audio_url
-            : `${translationBaseUrl}${audioPath}`,
+        audioUrl: new URL(translation.audio_url, `${translationBaseUrl}/`).toString(),
     };
 };
 
@@ -151,7 +148,6 @@ export const adaptSiteRecords = (records) => {
             : null;
         const audioUrl = site.audioUrl || site.audio_url;
         const image = site.image || site.image_url;
-        const audioPath = audioUrl ? new URL(audioUrl, `${translationBaseUrl}/`).pathname : null;
 
         return {
             ...site,
@@ -160,7 +156,9 @@ export const adaptSiteRecords = (records) => {
             longitude,
             radius: site.radius ?? site.geofence_radius ?? 100,
             story: site.story || site.description,
-            audioUrl: audioPath ? `${translationBaseUrl}${audioPath}` : audioUrl,
+            audioUrl: audioUrl
+                ? new URL(audioUrl, `${translationBaseUrl}/`).toString()
+                : audioUrl,
             image: image?.startsWith('/')
                 ? `${normalizedApiOrigin}${image}`
                 : image,

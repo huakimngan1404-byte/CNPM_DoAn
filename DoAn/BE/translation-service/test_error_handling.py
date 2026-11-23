@@ -311,6 +311,7 @@ class TestDatabaseBackedSiteTranslation:
         repository.get_audio_asset = AsyncMock(
             return_value={"_id": "en_cached-audio"}
         )
+        repository.update_translation_audio = AsyncMock()
         repository.save_audio_asset = AsyncMock()
         repository.save_translation = AsyncMock()
         translator = AsyncMock()
@@ -320,7 +321,7 @@ class TestDatabaseBackedSiteTranslation:
         service = SiteTranslationService(
             repository,
             tts,
-            "http://localhost:8001",
+            "https://translation.example.test",
             translator,
         )
 
@@ -328,10 +329,30 @@ class TestDatabaseBackedSiteTranslation:
 
         assert result["translation_cache"] == "HIT"
         assert result["audio_cache"] == "HIT"
+        assert result["audio_url"] == (
+            "https://translation.example.test/api/audio/files/en_cached-audio"
+        )
         translator.assert_not_awaited()
         tts.generate_audio.assert_not_awaited()
         repository.save_audio_asset.assert_not_awaited()
         repository.save_translation.assert_not_awaited()
+        repository.update_translation_audio.assert_awaited_once_with(
+            "translation-id",
+            "en_cached-audio",
+            "https://translation.example.test/api/audio/files/en_cached-audio",
+        )
+
+    def test_audio_url_uses_configured_public_translation_service_origin(self):
+        service = SiteTranslationService(
+            MagicMock(),
+            MagicMock(),
+            "https://translation.example.test/",
+            AsyncMock(),
+        )
+
+        assert service._audio_url("en_audio-key") == (
+            "https://translation.example.test/api/audio/files/en_audio-key"
+        )
 
     @pytest.mark.asyncio
     async def test_persists_translation_before_audio_generation_and_reuses_it_after_tts_failure(

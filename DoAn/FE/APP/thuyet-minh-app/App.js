@@ -208,7 +208,7 @@ useEffect(() => {
       (location) => {
         const { latitude, longitude } = location.coords;
         if (!isActive) return;
-        void fetchNearbySites(latitude, longitude, audioLanguage.id).catch((error) => {
+        void fetchNearbySites(latitude, longitude, visitorSessionId, audioLanguage.id).catch((error) => {
           console.error('Không thể đồng bộ vị trí GPS với backend:', error);
         });
 
@@ -256,7 +256,7 @@ useEffect(() => {
     isActive = false;
     if (locationSubscription) locationSubscription.remove();
   };
-}, [autoPlay, audioLanguage.id, audioPlayer]);
+}, [autoPlay, audioLanguage.id, audioPlayer, visitorSessionId]);
 
   useEffect(() => {
     let isActive = true;
@@ -443,7 +443,7 @@ useEffect(() => {
       const userLat = location.coords.latitude;
       const userLng = location.coords.longitude;
 
-      await fetchNearbySites(userLat, userLng, audioLanguage.id);
+      await fetchNearbySites(userLat, userLng, visitorSessionId, audioLanguage.id);
 
       // Tính khoảng cách với danh sách đã đồng bộ từ backend.
       const nearbySites = siteList

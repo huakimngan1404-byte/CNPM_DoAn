@@ -18,6 +18,7 @@ services:
     environment:
       MONGO_URI: ${MONGODB_URI:?Set MONGODB_URI in .env}
       MONGO_DATABASE: ${MONGO_DATABASE:-district1_historical_db}
+      AUDIO_PUBLIC_BASE_URL: ${AUDIO_PUBLIC_BASE_URL:-http://localhost:8001}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

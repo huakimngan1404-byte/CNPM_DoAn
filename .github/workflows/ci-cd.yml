@@ -29,8 +29,13 @@ jobs:
           python-version: "3.10"
       - name: Install translation service dependencies
         run: python -m pip install -r DoAn/BE/translation-service/requirements.txt
+      - name: Install site service dependencies
+        run: python -m pip install -r DoAn/BE/site-service/requirements.txt
       - name: Check backend Python syntax
         run: python -m compileall -q DoAn/BE/site-service DoAn/BE/translation-service
+      - name: Run site service tests
+        working-directory: DoAn/BE/site-service
+        run: python -m pytest -q test_geofence_radius.py
       - name: Run translation service tests
         working-directory: DoAn/BE/translation-service
         run: python -m pytest -q test_error_handling.py

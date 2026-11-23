@@ -313,7 +313,14 @@ class SiteService:
         for site in sites:
             site_lng = site["location"]["coordinates"][0]
             site_lat = site["location"]["coordinates"][1]
-            geofence_radius = 100
+            geofence_radius = site.get("geofence_radius")
+            if (
+                isinstance(geofence_radius, bool)
+                or not isinstance(geofence_radius, (int, float))
+                or not math.isfinite(geofence_radius)
+                or not 10 <= geofence_radius <= 1000
+            ):
+                geofence_radius = 100
             # Tính toán khoảng cách
             distance = self.calculate_distance(lat, lng, site_lat, site_lng)
             if distance <= geofence_radius and (
