@@ -10,11 +10,13 @@ from data import site_repository
 from data.site_repository import SiteRepository, has_valid_mp3_data, narration_status
 
 
-def test_legacy_narration_status_is_inferred_from_audio_and_visibility():
+def test_narration_status_replaces_draft_with_not_ready():
     assert narration_status({}, has_audio=True) == "published"
-    assert narration_status({}, has_audio=False) == "draft"
+    assert narration_status({}, has_audio=False) == "not_ready"
+    assert narration_status({"narration_status": "draft"}, has_audio=False) == "not_ready"
+    assert narration_status({"narration_status": "draft"}, has_audio=True) == "ready"
     assert narration_status({"is_hidden": True}, has_audio=True) == "hidden"
-    assert narration_status({"narration_status": "ready"}, has_audio=False) == "draft"
+    assert narration_status({"narration_status": "ready"}, has_audio=False) == "not_ready"
 
 
 def test_mp3_validation_requires_a_valid_mpeg_frame():
@@ -44,8 +46,38 @@ async def test_new_narration_upsert_sets_status_only_once(monkeypatch):
     )
 
     update = translations.update_one.await_args.args[1]
-    assert update["$set"]["narration_status"] == "draft"
+    assert update["$set"]["narration_status"] == "not_ready"
     assert "narration_status" not in update["$setOnInsert"]
+
+
+@pytest.mark.asyncio
+async def test_unhiding_legacy_draft_restores_not_ready(monkeypatch):
+    record = {
+        "site_code": "test-site",
+        "lang": "vi",
+        "is_hidden": True,
+        "narration_status": "hidden",
+        "status_before_hidden": "draft",
+    }
+    translations = SimpleNamespace(
+        find_one=AsyncMock(return_value=record),
+        update_one=AsyncMock(return_value=SimpleNamespace(matched_count=1)),
+    )
+    monkeypatch.setattr(
+        site_repository,
+        "db",
+        SimpleNamespace(translations=translations),
+    )
+
+    assert await SiteRepository().set_narration_hidden("test-site", "vi", False)
+    update = translations.update_one.await_args.args[1]
+    assert update["$set"]["narration_status"] == "not_ready"
+
+
+@pytest.mark.asyncio
+async def test_set_narration_status_rejects_draft():
+    with pytest.raises(ValueError, match="không hợp lệ"):
+        await SiteService().set_narration_status("test-site", "vi", "draft")
 
 
 @pytest.mark.asyncio

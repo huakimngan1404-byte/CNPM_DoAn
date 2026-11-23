@@ -283,7 +283,7 @@ export async function fetchAdminNarrations() {
     || typeof narration?.description !== 'string'
     || typeof narration?.is_active !== 'boolean'
     || typeof narration?.has_audio !== 'boolean'
-    || !['draft', 'ready', 'published', 'hidden'].includes(narration?.narration_status)
+    || !['not_ready', 'ready', 'published', 'hidden'].includes(narration?.narration_status)
   ))) {
     throw new Error('Backend trả về danh sách bài thuyết minh không hợp lệ.');
   }

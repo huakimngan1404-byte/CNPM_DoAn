@@ -875,12 +875,12 @@ function StatusBadge({ status, isHidden }) {
 
 function NarrationStatusBadge({ status }) {
   const labels = {
-    draft: 'Bản nháp',
+    not_ready: 'Chưa có audio',
     ready: 'Sẵn sàng',
     published: 'Công khai',
     hidden: 'Đã ẩn',
   };
-  return <span className={`status-badge narration-status ${status}`}><i />{labels[status] || labels.draft}</span>;
+  return <span className={`status-badge narration-status ${status}`}><i />{labels[status] || labels.not_ready}</span>;
 }
 
 function ActivityItem({ icon: Icon, tone, title, description, time }) {
@@ -1054,7 +1054,7 @@ function NarrationsPage({ notify, languages }) {
     setActionError('');
     notify(editingNarration
       ? 'Đã lưu nội dung. Nếu nội dung thay đổi, hãy tạo lại audio trước khi công khai.'
-      : 'Đã thêm bài ở trạng thái Bản nháp. Nhấn nghe thử để tạo audio.');
+      : 'Đã thêm bài chưa có audio. Nhấn nghe thử để tạo audio trước khi công khai.');
     try {
       await refreshNarrations();
     } catch (error) {
@@ -1301,8 +1301,8 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
       <label>Di tích <em>*</em><select value={siteCode} disabled={Boolean(narration) || saving || generating} onChange={(event) => setSiteCode(event.target.value)}>{sites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}</select></label>
       <label>Ngôn ngữ <em>*</em><select value={lang} disabled={Boolean(narration) || saving || generating} onChange={(event) => setLang(event.target.value)}>{availableLanguages.map((language) => <option key={language.code} value={language.code}>{language.name} · {language.code.toUpperCase()}</option>)}</select></label>
       {!narration && <p className="narration-generate-note">{canGenerateTranslation
-        ? 'Có thể tự nhập nội dung hoặc tạo bản dịch từ mô tả tiếng Việt. Nội dung sẽ được lưu thành Bản nháp; tạo audio riêng bằng nút nghe thử sau khi lưu.'
-        : 'Tiếng Việt là nội dung gốc: nhập nội dung tại đây. Nội dung sẽ được lưu thành Bản nháp.'}</p>}
+        ? 'Có thể tự nhập nội dung hoặc tạo bản dịch từ mô tả tiếng Việt. Bài chưa có audio sẽ chưa thể công khai; tạo audio bằng nút nghe thử sau khi lưu.'
+        : 'Tiếng Việt là nội dung gốc: nhập nội dung tại đây. Bài chưa có audio sẽ chưa thể công khai.'}</p>}
       {(saving || generating) && <div className="narration-loading" role="status" aria-live="polite">
         <LoaderCircle className="narration-spinner" size={19} />
         <div>

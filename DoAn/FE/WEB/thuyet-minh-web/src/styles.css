@@ -215,8 +215,8 @@ table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 .status-badge.hidden i { background: #e6a83d; }
 .status-badge.narration-status { width: fit-content; margin-left: 5px; padding: 3px 5px; font-size: 8px; }
 .status-badge.narration-status i { width: 5px; height: 5px; margin: 0; flex: 0 0 auto; }
-.status-badge.narration-status.draft { color: #8a735f; background: #f5f1ed; }
-.status-badge.narration-status.draft i { background: #ad9179; }
+.status-badge.narration-status.not_ready { color: #8a735f; background: #f5f1ed; }
+.status-badge.narration-status.not_ready i { background: #ad9179; }
 .status-badge.narration-status.ready { color: #477a99; background: #edf5f9; }
 .status-badge.narration-status.ready i { background: #6ea6c5; }
 .status-badge.narration-status.published { color: #398a6f; background: #edf8f3; }

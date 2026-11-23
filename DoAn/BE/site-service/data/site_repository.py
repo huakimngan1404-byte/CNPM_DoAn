@@ -50,10 +50,12 @@ def narration_status(record, has_audio):
         return "hidden"
 
     status = record.get("narration_status")
-    if status not in {"draft", "ready", "published"}:
-        status = "published" if has_audio else "draft"
+    if status == "draft":
+        status = "ready" if has_audio else "not_ready"
+    if status not in {"not_ready", "ready", "published"}:
+        status = "published" if has_audio else "not_ready"
     if status in {"ready", "published"} and not has_audio:
-        return "draft"
+        return "not_ready"
     return status
 
 
@@ -298,10 +300,10 @@ class SiteRepository:
             if existing and existing.get("is_hidden") is True:
                 updates.update({
                     "narration_status": "hidden",
-                    "status_before_hidden": "draft",
+                    "status_before_hidden": "not_ready",
                 })
             else:
-                updates["narration_status"] = "draft"
+                updates["narration_status"] = "not_ready"
         await db.translations.update_one(
             {"site_code": site_code, "lang": lang},
             {
@@ -346,10 +348,12 @@ class SiteRepository:
             return True
 
         restored_status = record.get("status_before_hidden")
-        if restored_status not in {"draft", "ready", "published"}:
-            restored_status = "published" if has_audio else "draft"
+        if restored_status == "draft":
+            restored_status = "ready" if has_audio else "not_ready"
+        if restored_status not in {"not_ready", "ready", "published"}:
+            restored_status = "published" if has_audio else "not_ready"
         if restored_status in {"ready", "published"} and not has_audio:
-            restored_status = "draft"
+            restored_status = "not_ready"
         result = await db.translations.update_one(
             {"site_code": site_code, "lang": lang},
             {

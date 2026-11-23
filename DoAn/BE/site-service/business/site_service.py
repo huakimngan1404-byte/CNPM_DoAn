@@ -115,7 +115,7 @@ class SiteService:
             raise LookupError("Không tìm thấy bài thuyết minh.")
 
     async def set_narration_status(self, site_code: str, lang: str, status: str):
-        if status not in {"draft", "ready", "published"}:
+        if status not in {"ready", "published"}:
             raise ValueError("Trạng thái bài thuyết minh không hợp lệ.")
         narration = await self.repo.get_narration(site_code, lang)
         if not narration:

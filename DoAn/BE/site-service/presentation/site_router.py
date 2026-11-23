@@ -39,7 +39,7 @@ class ListenEvent(BaseModel):
     source: Literal["visitor", "admin_preview", "gps_simulation"] = "visitor"
 
 class NarrationStatusUpdate(BaseModel):
-    narration_status: Literal["draft", "ready", "published"]
+    narration_status: Literal["ready", "published"]
 
 class SiteAdminForm(BaseModel):
     code: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
