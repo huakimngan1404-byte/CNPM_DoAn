@@ -302,15 +302,17 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
   const toggleSiteHidden = async (site) => {
     const isHidden = !site.isHidden;
     const action = isHidden ? 'ẩn' : 'hiện lại';
-    if (!window.confirm(`Bạn có chắc muốn ${action} "${site.name}"?`)) return;
+    if (!window.confirm(`Bạn có chắc muốn ${action} "${site.name}"?`)) return false;
     try {
       await setSiteHidden(site.code, isHidden);
       setSites((current) => current.map((item) => (
         item.code === site.code ? { ...item, isHidden } : item
       )));
       notify(isHidden ? `Đã ẩn "${site.name}".` : `Đã hiện lại "${site.name}".`);
+      return true;
     } catch (error) {
       notify(`Không thể ${action} di tích: ${error.message}`);
+      return false;
     }
   };
 
@@ -385,7 +387,7 @@ function AdminDashboard({ account, onAccountUpdate, onLogout, authRequired }) {
           </div>
           {activePage === 'dashboard' && <Dashboard sites={sites} languages={languages} onNavigate={setActivePage} />}
           {activePage === 'places' && <PlacesPage sites={filteredSites} totalSites={sites.length} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onEdit={openEdit} onToggleHidden={toggleSiteHidden} />}
-          {activePage === 'narrations' && <NarrationsPage notify={notify} languages={languages.filter((language) => language.is_active)} />}
+          {activePage === 'narrations' && <NarrationsPage notify={notify} languages={languages.filter((language) => language.is_active)} onToggleSiteHidden={toggleSiteHidden} />}
           {activePage === 'languages' && <LanguagesPage languages={languages} loadError={languageLoadError} onLanguagesChange={replaceLanguages} notify={notify} />}
           {activePage === 'map' && (
             <MapPage
@@ -928,7 +930,7 @@ function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setSta
   );
 }
 
-function NarrationsPage({ notify, languages }) {
+function NarrationsPage({ notify, languages, onToggleSiteHidden }) {
   const [selectedLang, setSelectedLang] = useState('Tất cả ngôn ngữ');
   const [selectedSiteCode, setSelectedSiteCode] = useState('all');
   const [search, setSearch] = useState('');
@@ -1081,6 +1083,17 @@ function NarrationsPage({ notify, languages }) {
     }
   };
 
+  const toggleHiddenSite = async (narration) => {
+    const site = sites.find((item) => item.code === narration.site_code);
+    if (!site || !site.isHidden) return;
+    const changed = await onToggleSiteHidden({ ...site, name: site.name || narration.site_name });
+    if (changed) {
+      setSites((current) => current.map((item) => (
+        item.code === narration.site_code ? { ...item, isHidden: false } : item
+      )));
+    }
+  };
+
   const playNarration = async (item) => {
     const id = item.id;
     const player = audioRef.current;
@@ -1173,8 +1186,8 @@ function NarrationsPage({ notify, languages }) {
           <button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site_name}` : isActive && isPlaying ? `Tạm dừng ${item.site_name}` : `Nghe ${item.site_name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id || item.is_hidden || siteIsHidden} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button>
           <div className="site-row-actions">
             <button className="row-more" aria-label={`Sửa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={siteIsHidden ? 'Di tích đã ẩn, không thể chỉnh sửa bài thuyết minh' : `Sửa ${item.site_name} · ${item.language_name}`} disabled={siteIsHidden} onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={15} /></button>
-            <button className={`row-more visibility-action ${item.is_hidden ? 'show-action' : 'hide-action'}`} aria-label={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh ${item.site_name} · ${item.language_name}`} title={siteIsHidden ? 'Di tích đã ẩn, không thể thay đổi bài thuyết minh' : `${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh`} disabled={siteIsHidden} onClick={() => toggleNarrationHidden(item)}>
-              <span>{item.is_hidden ? 'Hiện' : 'Ẩn'}</span>
+            <button className={`row-more visibility-action ${siteIsHidden || item.is_hidden ? 'show-action' : 'hide-action'}`} aria-label={`${siteIsHidden || item.is_hidden ? 'Hiện' : 'Ẩn'} ${siteIsHidden ? 'di tích' : 'bài thuyết minh'} ${item.site_name} · ${item.language_name}`} title={siteIsHidden ? 'Hiện di tích' : `${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh`} onClick={() => siteIsHidden ? toggleHiddenSite(item) : toggleNarrationHidden(item)}>
+              <span>{siteIsHidden || item.is_hidden ? 'Hiện' : 'Ẩn'}</span>
             </button>
           </div>
         </div>;
