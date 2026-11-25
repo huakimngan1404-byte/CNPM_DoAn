@@ -1,4 +1,4 @@
-import { AppState, Linking } from 'react-native';
+import { AppState } from 'react-native';
 import * as Location from 'expo-location';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -1554,7 +1554,7 @@ function MapScreen({
     setRouteInfo(null);
   };
 
-  // 3. Show directions inside the web map; open the maps app on native.
+  // 3. Show directions inside the map on every platform.
   const handleGetDirections = async () => {
     if (!selected || selected.latitude == null || selected.longitude == null
       || !Number.isFinite(Number(selected.latitude)) || !Number.isFinite(Number(selected.longitude))) {
@@ -1562,62 +1562,42 @@ function MapScreen({
       return;
     }
 
-    if (Platform.OS === 'web') {
-      setRouting(true);
-      setRouteError('');
-      setRouteInfo(null);
-      try {
-        const origin = userLocation || await getCurrentLocation();
-        if (!origin.simulated) realUserLocationRef.current = origin;
-        setUserLocation(origin);
-        const coordinates = `${origin.longitude},${origin.latitude};${selected.longitude},${selected.latitude}`;
-        const response = await fetch(
-          `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${coordinates}?overview=full&geometries=geojson&steps=true`
-        );
-        if (!response.ok) throw new Error(`Máy chủ chỉ đường trả về lỗi HTTP ${response.status}.`);
-        const data = await response.json();
-        const route = data.routes?.[0];
-        if (data.code !== 'Ok' || !route?.geometry?.coordinates?.length) {
-          throw new Error('Không tìm được tuyến đường đến di tích này.');
-        }
-
-        const steps = route.legs?.flatMap((leg) => leg.steps || [])
-          .map((step) => ({
-            instruction: describeRouteManeuver(step.maneuver, step.name),
-            distance: formatRouteDistance(step.distance),
-          }))
-          .filter((step) => step.instruction) || [];
-        const coordinatesList = route.geometry.coordinates;
-        setRouteInfo({
-          distance: formatRouteDistance(route.distance),
-          duration: formatRouteDuration(route.duration),
-          steps,
-          coordinates: coordinatesList,
-        });
-      } catch (error) {
-        console.error('Không thể tạo tuyến đường trong ứng dụng:', error);
-        setRouteError(error.message || 'Không thể tải tuyến đường. Vui lòng thử lại.');
-      } finally {
-        setRouting(false);
-      }
-      return;
-    }
-
-    // Dùng scheme gốc của bản đồ: maps:// cho iOS và web Google Maps cho Android
-    const url = Platform.OS === 'ios'
-      ? `maps://?daddr=${selected.latitude},${selected.longitude}`
-      : `https://www.google.com/maps/dir/?api=1&destination=${selected.latitude},${selected.longitude}`;
-    
+    setRouting(true);
+    setRouteError('');
+    setRouteInfo(null);
     try {
-      // Thử mở ứng dụng bản đồ gốc
-      await Linking.openURL(url);
-    } catch (error) {
-      console.log("Không thể mở Apple Maps, đang chuyển sang Google Maps Web...");
-      // Cơ chế dự phòng: Mở Google Maps trên trình duyệt Safari/Chrome
-      const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${selected.latitude},${selected.longitude}`;
-      Linking.openURL(fallbackUrl).catch(() => {
-        alert(translateUiText('Không thể mở tính năng chỉ đường trên thiết bị của bạn.', language.id));
+      const origin = userLocation || await getCurrentLocation();
+      if (!origin.simulated) realUserLocationRef.current = origin;
+      setUserLocation(origin);
+      const coordinates = `${origin.longitude},${origin.latitude};${selected.longitude},${selected.latitude}`;
+      const response = await fetch(
+        `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${coordinates}?overview=full&geometries=geojson&steps=true`
+      );
+      if (!response.ok) throw new Error(`Máy chủ chỉ đường trả về lỗi HTTP ${response.status}.`);
+      const data = await response.json();
+      const route = data.routes?.[0];
+      if (data.code !== 'Ok' || !route?.geometry?.coordinates?.length) {
+        throw new Error('Không tìm được tuyến đường đến di tích này.');
+      }
+
+      const steps = route.legs?.flatMap((leg) => leg.steps || [])
+        .map((step) => ({
+          instruction: describeRouteManeuver(step.maneuver, step.name),
+          distance: formatRouteDistance(step.distance),
+        }))
+        .filter((step) => step.instruction) || [];
+      const coordinatesList = route.geometry.coordinates;
+      setRouteInfo({
+        distance: formatRouteDistance(route.distance),
+        duration: formatRouteDuration(route.duration),
+        steps,
+        coordinates: coordinatesList,
       });
+    } catch (error) {
+      console.error('Không thể tạo tuyến đường trong ứng dụng:', error);
+      setRouteError(error.message || 'Không thể tải tuyến đường. Vui lòng thử lại.');
+    } finally {
+      setRouting(false);
     }
   };
 
