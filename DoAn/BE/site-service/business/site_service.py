@@ -444,6 +444,8 @@ class SiteService:
         existing = await self.repo.get_site_by_code(code)
         if not existing:
             raise LookupError("Không tìm thấy di tích.")
+        if existing.get("is_hidden") is True:
+            raise ValueError("Di tích đã ẩn, không thể chỉnh sửa.")
         if not data.get("name") or not data.get("location"):
             raise ValueError("Cần có tên và vị trí di tích.")
         data["geofence_radius"] = existing.get("geofence_radius", 100.0)
@@ -451,8 +453,11 @@ class SiteService:
         return {"status": "success"}
 
     async def update_geofence_radius(self, code: str, radius: float):
-        if not await self.repo.get_site_by_code(code):
+        existing = await self.repo.get_site_by_code(code)
+        if not existing:
             raise LookupError("Không tìm thấy di tích.")
+        if existing.get("is_hidden") is True:
+            raise ValueError("Di tích đã ẩn, không thể thay đổi bán kính.")
         await self.repo.update_site(code, {"geofence_radius": radius})
         return {"status": "success", "geofence_radius": radius}
 

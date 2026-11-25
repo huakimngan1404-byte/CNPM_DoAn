@@ -17,6 +17,7 @@ def test_missing_or_legacy_status_never_publishes_automatically():
     assert narration_status({"narration_status": "draft"}, has_audio=False) == "not_ready"
     assert narration_status({"is_hidden": True}, has_audio=True) == "hidden"
     assert narration_status({"narration_status": "ready"}, has_audio=False) == "not_ready"
+    assert narration_status({"narration_status": "published"}, has_audio=True) == "ready"
 
 
 def test_mp3_validation_requires_a_valid_mpeg_frame():
@@ -162,7 +163,7 @@ async def test_publishing_new_narration_promotes_it_and_clears_snapshot(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_public_narration_rejects_legacy_status_and_uses_approved_snapshot():
+async def test_public_narration_accepts_ready_audio_and_rejects_missing_audio():
     repo = SiteRepository()
     repo.get_site_by_code = AsyncMock(return_value={"code": "test-site"})
     repo.get_language = AsyncMock(return_value={"_id": "vi", "is_active": True})
@@ -173,22 +174,16 @@ async def test_public_narration_rejects_legacy_status_and_uses_approved_snapshot
         "audio_asset_id": "legacy-audio",
         "audio_url": "/api/audio/files/legacy-audio",
     })
-    assert await repo.get_public_narration("test-site", "vi") is None
+    assert await repo.get_public_narration("test-site", "vi") is not None
 
-    approved_snapshot = {
-        "description": "Approved narration",
-        "audio_asset_id": "approved-audio",
-        "audio_url": "/api/audio/files/approved-audio",
-        "narration_status": "published",
-    }
     repo.get_narration = AsyncMock(return_value={
-        "description": "New unreviewed narration",
-        "audio_asset_id": None,
+        "description": "Ready narration",
+        "audio_asset_id": "ready-audio",
+        "audio_url": "/api/audio/files/ready-audio",
         "narration_status": "ready",
-        "published_version": approved_snapshot,
     })
     result = await repo.get_public_narration("test-site", "vi")
-    assert result["description"] == "Approved narration"
+    assert result["description"] == "Ready narration"
 
     repo.has_valid_narration_audio = AsyncMock(return_value=False)
     assert await repo.get_public_narration("test-site", "vi") is None

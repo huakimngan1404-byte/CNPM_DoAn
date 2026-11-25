@@ -56,7 +56,7 @@ def narration_status(record, has_audio):
         status = "ready" if has_audio else "not_ready"
     if status in {"ready", "published"} and not has_audio:
         return "not_ready"
-    return status
+    return "ready" if status == "published" else status
 
 
 DEFAULT_SITES = (
@@ -267,14 +267,9 @@ class SiteRepository:
         if not record or record.get("is_hidden") is True or record.get("narration_status") == "hidden":
             return None
 
-        published_version = (
-            record
-            if record.get("narration_status") == "published"
-            else record.get("published_version")
-        )
+        published_version = record
         if (
             not isinstance(published_version, dict)
-            or published_version.get("narration_status") != "published"
             or not isinstance(published_version.get("description"), str)
             or not published_version["description"].strip()
             or not await self.has_valid_narration_audio(published_version)

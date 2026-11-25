@@ -321,13 +321,6 @@ export async function setNarrationHidden(siteCode, lang, isHidden) {
   }, true);
 }
 
-export async function setNarrationStatus(siteCode, lang, narrationStatus) {
-  return requestSite(`/api/narrations/${encodeURIComponent(siteCode)}/${encodeURIComponent(lang)}/status`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ narration_status: narrationStatus }),
-  }, true);
-}
 
 export async function fetchRecentActivity() {
   const records = await requestSite('/api/sites/activity', {}, true);

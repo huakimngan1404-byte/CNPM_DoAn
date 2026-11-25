@@ -25,7 +25,7 @@ def make_repository(existing=None):
     ("audio_asset_id", "audio_url", "expected_status"),
     [
         (None, None, "not_ready"),
-        ("ready-audio", "/api/audio/files/ready-audio", "not_ready"),
+        ("ready-audio", "/api/audio/files/ready-audio", "ready"),
     ],
 )
 async def test_saved_translation_is_not_published_without_admin_approval(
@@ -80,7 +80,7 @@ async def test_new_translation_keeps_approved_version_until_new_content_is_publi
     )
 
     update = translations.update_one.await_args.args[1]
-    assert update["$set"]["narration_status"] == "not_ready"
+    assert update["$set"]["narration_status"] == "ready"
     assert update["$set"]["published_version"] == approved_version
 
 
@@ -118,7 +118,7 @@ async def test_failed_audio_regeneration_does_not_remove_published_narration():
 
 
 @pytest.mark.asyncio
-async def test_cached_legacy_audio_stays_unapproved_until_validation():
+async def test_cached_legacy_audio_is_ready():
     translations = SimpleNamespace(
         find_one=AsyncMock(return_value={"_id": "translation-id"}),
         update_one=AsyncMock(),
@@ -136,5 +136,5 @@ async def test_cached_legacy_audio_stays_unapproved_until_validation():
     )
 
     update = translations.update_one.await_args.args[1]
-    assert update["$set"]["narration_status"] == "not_ready"
+    assert update["$set"]["narration_status"] == "ready"
 

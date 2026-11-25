@@ -334,6 +334,8 @@ async def update_site(code: str, data: SiteAdminUpdate):
         return await service.update_site(code, to_site_document(data, code))
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 @router.patch("/{code}/geofence-radius", dependencies=[Depends(require_admin)])
 async def update_site_geofence_radius(code: str, data: SiteGeofenceRadiusUpdate):
@@ -341,6 +343,8 @@ async def update_site_geofence_radius(code: str, data: SiteGeofenceRadiusUpdate)
         return await service.update_geofence_radius(code, data.geofence_radius)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 @router.patch("/{code}/visibility", dependencies=[Depends(require_admin)])
 async def set_site_visibility(code: str, data: VisibilityUpdate):

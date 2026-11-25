@@ -30,7 +30,6 @@ import {
   recordNarrationListen,
   setSiteHidden,
   setNarrationHidden,
-  setNarrationStatus,
   updateSite,
   updateSiteGeofenceRadius,
   updateLanguage,
@@ -433,7 +432,7 @@ function Dashboard({ sites, languages, onNavigate }) {
       .then((narrations) => {
         if (!active) return;
         setNarrationCount(narrations.filter((narration) => (
-          narration.narration_status === 'published' && narration.has_audio
+          narration.narration_status === 'ready' && narration.has_audio
         )).length);
         setNarrationLoadError('');
       })
@@ -874,7 +873,7 @@ function NarrationStatusBadge({ status }) {
   const labels = {
     not_ready: 'Chưa có audio',
     ready: 'Sẵn sàng',
-    published: 'Công khai',
+    published: 'Sẵn sàng',
     hidden: 'Đã ẩn',
   };
   return <span className={`status-badge narration-status ${status}`}><i />{labels[status] || labels.not_ready}</span>;
@@ -915,7 +914,7 @@ function PlacesPage({ sites, totalSites, search, setSearch, statusFilter, setSta
             <td><LanguagePills codes={site.languages} /></td>
             <td><StatusBadge status={site.status} isHidden={site.isHidden} /></td>
             <td><div className="site-row-actions">
-              <button className="row-more" aria-label={`Sửa di tích ${site.name}`} title={`Sửa di tích ${site.name}`} onClick={() => onEdit(site)}><Pencil size={15} /></button>
+              <button className="row-more" aria-label={`Sửa di tích ${site.name}`} title={site.isHidden ? 'Di tích đã ẩn, không thể chỉnh sửa' : `Sửa di tích ${site.name}`} disabled={site.isHidden} onClick={() => onEdit(site)}><Pencil size={15} /></button>
               <button className={`row-more visibility-action ${site.isHidden ? 'show-action' : 'hide-action'}`} aria-label={`${site.isHidden ? 'Hiện' : 'Ẩn'} di tích ${site.name}`} title={`${site.isHidden ? 'Hiện' : 'Ẩn'} di tích ${site.name}`} onClick={() => onToggleHidden(site)}>
                 <span>{site.isHidden ? 'Hiện' : 'Ẩn'}</span>
               </button>
@@ -1050,8 +1049,8 @@ function NarrationsPage({ notify, languages }) {
     setIsModalOpen(false);
     setActionError('');
     notify(editingNarration
-      ? 'Đã lưu nội dung. Nếu nội dung thay đổi, hãy tạo lại audio trước khi công khai.'
-      : 'Đã thêm bài chưa có audio. Nhấn nghe thử để tạo audio trước khi công khai.');
+      ? 'Đã lưu nội dung. Nếu nội dung thay đổi, hãy tạo lại audio.'
+      : 'Đã thêm bài chưa có audio. Nhấn nghe thử để tạo audio.');
     try {
       await refreshNarrations();
     } catch (error) {
@@ -1079,33 +1078,6 @@ function NarrationsPage({ notify, languages }) {
       }
     } catch (error) {
       setActionError(`Không thể ${action} bài thuyết minh: ${error.message}`);
-    }
-  };
-
-  const changeNarrationStatus = async (narration) => {
-    const nextStatus = narration.narration_status === 'ready'
-      ? 'published'
-      : narration.narration_status === 'published'
-        ? 'ready'
-        : 'ready';
-    const action = nextStatus === 'published'
-      ? 'công khai'
-      : narration.narration_status === 'published'
-        ? 'gỡ công khai'
-        : 'đánh dấu sẵn sàng';
-    if (!window.confirm(`Bạn có chắc muốn ${action} bài thuyết minh ${narration.site_name} · ${narration.language_name}?`)) return;
-    try {
-      await setNarrationStatus(narration.site_code, narration.lang, nextStatus);
-      notify(nextStatus === 'published' ? 'Đã công khai bài thuyết minh.' : 'Bài thuyết minh đã sẵn sàng.');
-    } catch (error) {
-      setActionError(`Không thể ${action} bài thuyết minh: ${error.message}`);
-      return;
-    }
-    setActionError('');
-    try {
-      await refreshNarrations();
-    } catch (error) {
-      setActionError(`Đã ${action} bài thuyết minh nhưng không thể tải lại danh sách: ${error.message}`);
     }
   };
 
@@ -1200,14 +1172,8 @@ function NarrationsPage({ notify, languages }) {
           <div className="narration-title"><strong>{item.site_name}</strong><span>{item.language_flag || item.language.flag} {item.language_name} · {item.lang.toUpperCase()}<i /> <NarrationStatusBadge status={item.narration_status} />{siteIsHidden && <em>Di tích đã ẩn</em>}{!item.is_active && <em>Ngôn ngữ đã ẩn</em>}</span><small>{item.description}</small></div>
           <button className="play-preview" aria-label={loadingId === item.id ? `Đang tải ${item.site_name}` : isActive && isPlaying ? `Tạm dừng ${item.site_name}` : `Nghe ${item.site_name}`} title={loadingId === item.id ? 'Đang tải audio' : isActive && isPlaying ? 'Tạm dừng' : 'Nghe thử'} disabled={loadingId === item.id || item.is_hidden || siteIsHidden} onClick={() => playNarration(item)}>{loadingId === item.id ? <span className="play-loading">…</span> : isActive && isPlaying ? <Pause size={15} /> : <Play size={15} />}</button>
           <div className="site-row-actions">
-            <button className="row-more" aria-label={`Sửa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`Sửa ${item.site_name} · ${item.language_name}`} onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={15} /></button>
-            {!item.is_hidden && item.has_audio && item.narration_status !== 'published' && <button className="row-more visibility-action show-action" aria-label={`${item.narration_status === 'ready' ? 'Công khai' : 'Đánh dấu sẵn sàng'} bài thuyết minh ${item.site_name} · ${item.language_name}`} title={item.narration_status === 'ready' ? 'Công khai bài thuyết minh' : 'Đánh dấu sẵn sàng'} onClick={() => changeNarrationStatus(item)}>
-              <span>{item.narration_status === 'ready' ? 'Công khai' : 'Sẵn sàng'}</span>
-            </button>}
-            {!item.is_hidden && item.narration_status === 'published' && <button className="row-more visibility-action hide-action" aria-label={`Gỡ công khai bài thuyết minh ${item.site_name} · ${item.language_name}`} title="Gỡ công khai bài thuyết minh" onClick={() => changeNarrationStatus(item)}>
-              <span>Gỡ công khai</span>
-            </button>}
-            <button className={`row-more visibility-action ${item.is_hidden ? 'show-action' : 'hide-action'}`} aria-label={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh ${item.site_name} · ${item.language_name}`} title={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh`} onClick={() => toggleNarrationHidden(item)}>
+            <button className="row-more" aria-label={`Sửa bài thuyết minh ${item.site_name} · ${item.language_name}`} title={siteIsHidden ? 'Di tích đã ẩn, không thể chỉnh sửa bài thuyết minh' : `Sửa ${item.site_name} · ${item.language_name}`} disabled={siteIsHidden} onClick={() => { setEditingNarration(item); setIsModalOpen(true); }}><Pencil size={15} /></button>
+            <button className={`row-more visibility-action ${item.is_hidden ? 'show-action' : 'hide-action'}`} aria-label={`${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh ${item.site_name} · ${item.language_name}`} title={siteIsHidden ? 'Di tích đã ẩn, không thể thay đổi bài thuyết minh' : `${item.is_hidden ? 'Hiện' : 'Ẩn'} bài thuyết minh`} disabled={siteIsHidden} onClick={() => toggleNarrationHidden(item)}>
               <span>{item.is_hidden ? 'Hiện' : 'Ẩn'}</span>
             </button>
           </div>
@@ -1244,6 +1210,7 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
     || !narrations.some((item) => item.site_code === siteCode && item.lang === language.code)
   ));
   const selectedSite = sites.find((site) => site.code === siteCode);
+  const selectedSiteIsHidden = selectedSite?.isHidden === true;
   const selectedLanguage = formLanguages.find((language) => language.code === lang);
   const canGenerateTranslation = lang !== 'vi';
 
@@ -1295,11 +1262,11 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving && !generating) onClose(); }}><form className="site-modal narration-modal" onSubmit={submit}>
     <div className="modal-head"><div><span className="modal-icon"><BookOpen size={18} /></span><div><h2>{narration ? 'Chỉnh sửa bài thuyết minh' : 'Thêm bài thuyết minh'}</h2><p>Nội dung được lưu vào Backend; audio có thể tạo riêng sau khi lưu.</p></div></div><button type="button" className="icon-button" aria-label="Đóng" onClick={onClose} disabled={saving || generating}><X size={19} /></button></div>
     <div className="modal-body">
-      <label>Di tích <em>*</em><select value={siteCode} disabled={Boolean(narration) || saving || generating} onChange={(event) => setSiteCode(event.target.value)}>{sites.map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}</select></label>
+      <label>Di tích <em>*</em><select value={siteCode} disabled={Boolean(narration) || saving || generating} onChange={(event) => setSiteCode(event.target.value)}>{sites.filter((site) => !site.isHidden).map((site) => <option key={site.code} value={site.code}>{site.name}</option>)}</select></label>
       <label>Ngôn ngữ <em>*</em><select value={lang} disabled={Boolean(narration) || saving || generating} onChange={(event) => setLang(event.target.value)}>{availableLanguages.map((language) => <option key={language.code} value={language.code}>{language.name} · {language.code.toUpperCase()}</option>)}</select></label>
       {!narration && <p className="narration-generate-note">{canGenerateTranslation
-        ? 'Có thể tự nhập nội dung hoặc tạo bản dịch từ mô tả tiếng Việt. Bài chưa có audio sẽ chưa thể công khai; tạo audio bằng nút nghe thử sau khi lưu.'
-        : 'Tiếng Việt là nội dung gốc: nhập nội dung tại đây. Bài chưa có audio sẽ chưa thể công khai.'}</p>}
+        ? 'Có thể tự nhập nội dung hoặc tạo bản dịch từ mô tả tiếng Việt. Tạo audio bằng nút nghe thử sau khi lưu.'
+        : 'Tiếng Việt là nội dung gốc: nhập nội dung tại đây. Bài có audio sẽ sẵn sàng để thuyết minh.'}</p>}
       {(saving || generating) && <div className="narration-loading" role="status" aria-live="polite">
         <LoaderCircle className="narration-spinner" size={19} />
         <div>
@@ -1315,10 +1282,10 @@ function NarrationModal({ narration, sites, languages, narrations, onClose, onSa
       {error && <div className="form-error" role="alert">{error}</div>}
     </div>
     <div className="modal-foot narration-modal-foot">
-      {canGenerateTranslation && <button type="button" className="button button-secondary" onClick={generateTranslation} disabled={saving || generating || !selectedSite || !selectedLanguage}>{generating && <LoaderCircle className="narration-spinner" size={14} />}{generating ? 'Đang tạo nội dung…' : 'Tạo nội dung tự động'}</button>}
+      {canGenerateTranslation && <button type="button" className="button button-secondary" onClick={generateTranslation} disabled={saving || generating || !selectedSite || selectedSiteIsHidden || !selectedLanguage}>{generating && <LoaderCircle className="narration-spinner" size={14} />}{generating ? 'Đang tạo nội dung…' : 'Tạo nội dung tự động'}</button>}
       <span className="modal-foot-spacer" />
       <button type="button" className="button button-secondary" onClick={onClose} disabled={saving || generating}>Hủy</button>
-      <button className="button button-primary" type="submit" disabled={saving || generating || !siteCode || !lang}>{saving && <LoaderCircle className="narration-spinner" size={14} />}{saving ? 'Đang xử lý…' : narration ? 'Lưu thay đổi' : 'Thêm bài'} {!saving && <ArrowRight size={15} />}</button>
+      <button className="button button-primary" type="submit" disabled={saving || generating || !siteCode || !lang || selectedSiteIsHidden}>{saving && <LoaderCircle className="narration-spinner" size={14} />}{saving ? 'Đang xử lý…' : narration ? 'Lưu thay đổi' : 'Thêm bài'} {!saving && <ArrowRight size={15} />}</button>
     </div>
   </form></div>;
 }
@@ -1961,6 +1928,7 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
                   role="option"
                   aria-selected={(selectedSite?.code ?? selectedSite?.id) === (site.code ?? site.id)}
                   key={site.code || site.id}
+                  disabled={site.isHidden}
                   onClick={() => selectSite(site)}
                 >
                   <span>{site.name}</span>
@@ -1990,12 +1958,12 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
                 value={radiusDraft}
                 onChange={(event) => setRadiusDraft(event.target.value)}
                 aria-label="Nhập bán kính geofence theo mét"
-                disabled={savingRadius}
+                disabled={savingRadius || selectedSite.isHidden}
               />
               <button
                 className="button button-primary small-button"
                 onClick={saveRadius}
-                disabled={!radiusIsDirty || !radiusIsValid || savingRadius}
+                disabled={!radiusIsDirty || !radiusIsValid || savingRadius || selectedSite.isHidden}
               >
                 {savingRadius ? 'Đang lưu…' : 'Lưu bán kính'}
               </button>
@@ -2007,7 +1975,7 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
               className="button button-secondary small-button"
               onClick={simulation?.status === 'walking' ? stopSimulation
                 : simulation?.status === 'arrived' ? stopSimulation : startSimulation}
-              disabled={simulationLoading || !radiusIsValid}
+              disabled={simulationLoading || !radiusIsValid || selectedSite.isHidden}
             >
               {simulationLoading
                 ? 'Đang tìm đường…'

@@ -44,8 +44,8 @@ class AudioRepository:
         if record:
             if record.get("is_hidden") is True or record.get("narration_status") == "hidden":
                 updates["status_before_hidden"] = "not_ready"
-            elif record.get("narration_status") != "published":
-                updates["narration_status"] = "not_ready"
+            else:
+                updates["narration_status"] = "ready"
         await self.translations.update_one(
             {"_id": translation_id},
             {"$set": updates},
@@ -94,7 +94,7 @@ class AudioRepository:
             {"site_code": site_code, "lang": lang},
         )
         has_audio = bool(audio_asset_id and audio_url)
-        status = "not_ready"
+        status = "ready" if has_audio else "not_ready"
         updates = {
             "site_code": site_code,
             "lang": lang,
