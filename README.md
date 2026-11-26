@@ -240,3 +240,11 @@ Render Blueprint trong [`render.yaml`](./render.yaml) định nghĩa hai backend
 - Translation service: <https://quan1-translation-service-d3xw.onrender.com>
 
 Các dịch vụ Render gói miễn phí có thể tạm ngừng khi không hoạt động; request đầu tiên sau thời gian chờ có thể mất thêm thời gian để khởi động.
+
+## Thành viên nhóm
+
+| STT | MSSV | Họ và tên |
+|---:|---|---|
+| 1 | 3124411178 | [HỨA KIM NGÂN](https://www.facebook.com/kimngan.hua.948) |
+| 2 | 3124411006 | [ĐẶNG NGỌC MINH ANH](https://www.facebook.com/minh.anh.ang.349580) |
+| 3 | 3124411200 | [QUÁCH MINH NHẬT](https://www.facebook.com/nhat.quach.minh.2024?locale=vi_VN) |
