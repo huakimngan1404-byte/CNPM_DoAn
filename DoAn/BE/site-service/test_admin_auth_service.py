@@ -1,8 +1,10 @@
 import base64
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from business.admin_auth_service import (
     ADMIN_DOCUMENT_ID,
@@ -10,6 +12,7 @@ from business.admin_auth_service import (
     _hash_password,
     _verify_password,
 )
+from presentation import auth_router
 
 
 class FakeAccounts:
@@ -59,6 +62,7 @@ async def test_initial_account_stores_a_password_hash(monkeypatch):
 
     assert service.accounts.account["_id"] == ADMIN_DOCUMENT_ID
     assert "password" not in service.accounts.account
+    assert isinstance(service.accounts.account["password_changed_at"], datetime)
     assert _verify_password("initial-password", service.accounts.account)
     assert not _verify_password("wrong-password", service.accounts.account)
 
@@ -77,9 +81,16 @@ async def test_legacy_plaintext_password_is_upgraded_on_successful_login():
     session = await service.login("admin", "legacy-password")
 
     assert "password" not in service.accounts.account
+    assert isinstance(service.accounts.account["password_changed_at"], datetime)
     assert _verify_password("legacy-password", service.accounts.account)
-    assert await service.authenticate(existing_session["access_token"]) == {"username": "admin"}
-    assert await service.authenticate(session["access_token"]) == {"username": "admin"}
+    assert await service.authenticate(existing_session["access_token"]) == {
+        "username": "admin",
+        "must_change_password": False,
+    }
+    assert await service.authenticate(session["access_token"]) == {
+        "username": "admin",
+        "must_change_password": False,
+    }
 
 
 @pytest.mark.asyncio
@@ -118,4 +129,63 @@ async def test_updating_credentials_replaces_password_with_hash_and_keeps_hmac_l
     assert service.accounts.account["username"] == "new-admin"
     assert "password" not in service.accounts.account
     assert _verify_password("new-password", service.accounts.account)
-    assert await service.authenticate(session["access_token"]) == {"username": "new-admin"}
+    assert service.accounts.account["password_changed_at"].tzinfo == timezone.utc
+    assert session["must_change_password"] is False
+    assert await service.authenticate(session["access_token"]) == {
+        "username": "new-admin",
+        "must_change_password": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_login_requires_password_change_after_24_hours():
+    service = AdminAuthService()
+    service.accounts = FakeAccounts({
+        "_id": ADMIN_DOCUMENT_ID,
+        "username": "admin",
+        "password_hash": _hash_password("current-password"),
+        "password_changed_at": datetime.now(timezone.utc) - timedelta(hours=24, seconds=1),
+        "token_secret": _token_secret(),
+    })
+
+    session = await service.login("admin", "current-password")
+
+    assert session["must_change_password"] is True
+    assert await service.authenticate(session["access_token"]) == {
+        "username": "admin",
+        "must_change_password": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_new_password_must_differ_from_current_password():
+    service = AdminAuthService()
+    service.accounts = FakeAccounts({
+        "_id": ADMIN_DOCUMENT_ID,
+        "username": "admin",
+        "password_hash": _hash_password("current-password"),
+        "password_changed_at": datetime.now(timezone.utc) - timedelta(hours=25),
+        "token_secret": _token_secret(),
+    })
+
+    with pytest.raises(ValueError, match="Mật khẩu mới phải khác"):
+        await service.update_credentials(
+            "current-password",
+            "admin",
+            "current-password",
+        )
+
+
+@pytest.mark.asyncio
+async def test_expired_password_blocks_admin_but_allows_authenticated_change_flow(monkeypatch):
+    async def authenticate(_token):
+        return {"username": "admin", "must_change_password": True}
+
+    monkeypatch.setattr(auth_router.service, "authenticate", authenticate)
+
+    account = await auth_router.require_authenticated_admin("Bearer valid-token")
+    assert account["must_change_password"] is True
+
+    with pytest.raises(HTTPException) as error:
+        await auth_router.require_admin(account)
+    assert error.value.status_code == 403
