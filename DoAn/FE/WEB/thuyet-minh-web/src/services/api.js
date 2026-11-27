@@ -106,6 +106,17 @@ export async function loginAdmin(username, password) {
   if (typeof session.access_token !== 'string' || !session.access_token) {
     throw new Error('Backend trả về phiên đăng nhập không hợp lệ.');
   }
+  if (typeof session.must_change_password !== 'boolean') {
+    throw new Error('Backend chưa trả về trạng thái mật khẩu quản trị.');
+  }
+  return session;
+}
+
+export async function getAdminSession() {
+  const session = await requestSite('/api/auth/session', {}, true);
+  if (typeof session.must_change_password !== 'boolean') {
+    throw new Error('Backend trả về trạng thái phiên quản trị không hợp lệ.');
+  }
   return session;
 }
 
@@ -121,6 +132,9 @@ export async function updateAdminCredentials(currentPassword, username, newPassw
   }, true);
   if (typeof session.access_token !== 'string' || !session.access_token) {
     throw new Error('Backend trả về phiên đăng nhập không hợp lệ.');
+  }
+  if (typeof session.must_change_password !== 'boolean') {
+    throw new Error('Backend chưa trả về trạng thái mật khẩu quản trị.');
   }
   sessionStorage.setItem(adminTokenStorageKey, session.access_token);
   return session;

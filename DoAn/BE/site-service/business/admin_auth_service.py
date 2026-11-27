@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import time
+from datetime import datetime, timezone
 
 from pymongo.errors import DuplicateKeyError
 
@@ -13,6 +14,7 @@ from data.site_repository import db
 
 
 TOKEN_LIFETIME_SECONDS = 12 * 60 * 60
+PASSWORD_MAX_AGE_SECONDS = 24 * 60 * 60
 ADMIN_DOCUMENT_ID = "primary"
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 600_000
@@ -82,6 +84,18 @@ def _verify_password(password: str, account: dict) -> bool:
     )
 
 
+def _password_change_required(account: dict, now: datetime | None = None) -> bool:
+    changed_at = account.get("password_changed_at")
+    if not isinstance(changed_at, datetime):
+        return True
+    if changed_at.tzinfo is None:
+        changed_at = changed_at.replace(tzinfo=timezone.utc)
+    else:
+        changed_at = changed_at.astimezone(timezone.utc)
+    current_time = now or datetime.now(timezone.utc)
+    return (current_time - changed_at).total_seconds() >= PASSWORD_MAX_AGE_SECONDS
+
+
 class AdminAuthService:
     def __init__(self):
         self.accounts = db.admin_accounts
@@ -89,6 +103,11 @@ class AdminAuthService:
     async def ensure_initial_account(self):
         account = await self.accounts.find_one({"_id": ADMIN_DOCUMENT_ID})
         if account:
+            if "password_changed_at" not in account:
+                await self.accounts.update_one(
+                    {"_id": ADMIN_DOCUMENT_ID, "password_changed_at": {"$exists": False}},
+                    {"$set": {"password_changed_at": datetime.now(timezone.utc)}},
+                )
             return
 
         username = os.getenv("ADMIN_INITIAL_USERNAME", "").strip()
@@ -97,12 +116,14 @@ class AdminAuthService:
             return
 
         try:
+            now = datetime.now(timezone.utc)
             await self.accounts.insert_one({
                 "_id": ADMIN_DOCUMENT_ID,
                 "username": username,
                 "display_name": username,
                 "password_hash": _hash_password(password),
                 "token_secret": _encode(secrets.token_bytes(32)),
+                "password_changed_at": now,
             })
         except DuplicateKeyError:
             return
@@ -158,6 +179,8 @@ class AdminAuthService:
         account = await self.accounts.find_one({"_id": ADMIN_DOCUMENT_ID})
         if not account or not _verify_password(current_password, account):
             raise ValueError("Mật khẩu hiện tại không chính xác.")
+        if _verify_password(new_password, account):
+            raise ValueError("Mật khẩu mới phải khác mật khẩu hiện tại.")
 
         await self.accounts.update_one(
             {"_id": ADMIN_DOCUMENT_ID},
@@ -166,6 +189,7 @@ class AdminAuthService:
                 "display_name": username.strip(),
                 "password_hash": _hash_password(new_password),
                 "token_secret": _encode(secrets.token_bytes(32)),
+                "password_changed_at": datetime.now(timezone.utc),
             }, "$unset": {"password": "", "password_salt": ""}},
         )
         updated_account = await self.accounts.find_one({"_id": ADMIN_DOCUMENT_ID})
@@ -189,7 +213,10 @@ class AdminAuthService:
                 return None
             if int(payload.get("exp", 0)) <= int(time.time()):
                 return None
-            return {"username": account["username"]}
+            return {
+                "username": account["username"],
+                "must_change_password": _password_change_required(account),
+            }
         except (KeyError, TypeError, ValueError, UnicodeDecodeError, binascii.Error):
             return None
 
@@ -210,4 +237,5 @@ class AdminAuthService:
             "token_type": "bearer",
             "username": account["username"],
             "display_name": account.get("display_name", account["username"]),
+            "must_change_password": _password_change_required(account),
         }

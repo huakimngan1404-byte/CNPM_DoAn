@@ -26,6 +26,7 @@ import {
   apiBaseUrl,
   heartbeatVisitor,
   leaveVisitor,
+  getAdminSession,
   loginAdmin,
   recordNarrationListen,
   setSiteHidden,
@@ -121,26 +122,56 @@ function App() {
 
 function AdminApp() {
   const [account, setAccount] = useState({ displayName: 'Admin Q1', username: '' });
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => adminAuthRequired
-      ? Boolean(sessionStorage.getItem(adminTokenStorageKey))
-      : sessionStorage.getItem('ditichq1-admin-authenticated') === 'true',
-  );
+  const [authStatus, setAuthStatus] = useState(() => (
+    adminAuthRequired && sessionStorage.getItem(adminTokenStorageKey)
+      ? 'checking'
+      : 'anonymous'
+  ));
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [authError, setAuthError] = useState('');
 
   useEffect(() => {
     const handleExpiredSession = () => {
-      setIsAuthenticated(false);
+      setAuthStatus('anonymous');
+      setMustChangePassword(false);
       setAccount({ displayName: 'Admin Q1', username: '' });
     };
     window.addEventListener('ditichq1-admin-auth-expired', handleExpiredSession);
     return () => window.removeEventListener('ditichq1-admin-auth-expired', handleExpiredSession);
   }, []);
 
+  useEffect(() => {
+    if (authStatus !== 'checking') return undefined;
+    let active = true;
+    getAdminSession()
+      .then((session) => {
+        if (!active) return;
+        setAccount({ displayName: session.username, username: session.username });
+        setMustChangePassword(session.must_change_password);
+        setAuthStatus('authenticated');
+        setAuthError('');
+      })
+      .catch((error) => {
+        if (!active) return;
+        if (error.status === 401) {
+          sessionStorage.removeItem(adminTokenStorageKey);
+          setAuthStatus('anonymous');
+          return;
+        }
+        setAuthError(error.message || 'Không thể xác minh phiên đăng nhập.');
+        setAuthStatus('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, [authStatus]);
+
   const login = async (username, password) => {
     const session = await loginAdmin(username, password);
     sessionStorage.setItem(adminTokenStorageKey, session.access_token);
     setAccount({ displayName: session.display_name || session.username, username: session.username });
-    setIsAuthenticated(true);
+    setMustChangePassword(session.must_change_password);
+    setAuthStatus('authenticated');
     return true;
   };
 
@@ -148,16 +179,46 @@ function AdminApp() {
     setAccount({ displayName: updates.username, username: updates.username });
   };
 
+  const completeRequiredPasswordChange = (session) => {
+    setAccount({ displayName: session.display_name || session.username, username: session.username });
+    setMustChangePassword(false);
+  };
+
   const logout = () => {
     sessionStorage.removeItem(adminTokenStorageKey);
     sessionStorage.removeItem('ditichq1-admin-authenticated');
-    setIsAuthenticated(false);
+    setAuthStatus('anonymous');
+    setMustChangePassword(false);
     setAccount({ displayName: 'Admin Q1', username: '' });
   };
 
-  return isAuthenticated
-    ? <AdminDashboard account={account} onAccountUpdate={updateAccount} onLogout={logout} authRequired={adminAuthRequired} />
-    : <AdminLogin onLogin={login} />;
+  if (authStatus === 'checking') {
+    return <main className="login-page"><section className="login-card"><p>Đang kiểm tra phiên đăng nhập…</p></section></main>;
+  }
+  if (authStatus === 'error') {
+    return (
+      <main className="login-page">
+        <section className="login-card">
+          <h1>Không thể xác minh phiên</h1>
+          <p className="login-error" role="alert">{authError}</p>
+          <button className="button button-primary login-submit" onClick={() => setAuthStatus('checking')}>Thử lại</button>
+          <button className="password-change-logout" onClick={logout}>Đăng xuất</button>
+        </section>
+      </main>
+    );
+  }
+  if (authStatus === 'anonymous') return <AdminLogin onLogin={login} />;
+  if (mustChangePassword) {
+    return (
+      <RequiredPasswordChange
+        account={account}
+        onAccountUpdate={updateAccount}
+        onComplete={completeRequiredPasswordChange}
+        onLogout={logout}
+      />
+    );
+  }
+  return <AdminDashboard account={account} onAccountUpdate={updateAccount} onLogout={logout} authRequired={adminAuthRequired} />;
 }
 
 function AdminLogin({ onLogin }) {
@@ -214,6 +275,26 @@ function AdminLogin({ onLogin }) {
         {error && <div className="login-error" role="alert">{error}</div>}
         <button className="button button-primary login-submit" type="submit" disabled={submitting}>{submitting ? 'Đang xác thực…' : 'Đăng nhập'}</button>
       </form>
+    </main>
+  );
+}
+
+function RequiredPasswordChange({ account, onAccountUpdate, onComplete, onLogout }) {
+  return (
+    <main className="login-page password-expired-page">
+      <section className="login-card password-change-card">
+        <div className="login-brand-mark"><MapPin size={22} strokeWidth={2.4} /></div>
+        <span className="login-eyebrow">HERITAGE AUDIO GUIDE</span>
+        <h1>Đổi mật khẩu bắt buộc</h1>
+        <p>Mật khẩu đã được sử dụng ít nhất 24 giờ. Hãy đổi mật khẩu để tiếp tục vào trang quản trị.</p>
+        <AdminCredentialsForm
+          account={account}
+          onAccountUpdate={onAccountUpdate}
+          onSuccess={onComplete}
+          submitLabel="Đổi mật khẩu và tiếp tục"
+        />
+        <button className="password-change-logout" onClick={onLogout}>Đăng xuất</button>
+      </section>
     </main>
   );
 }
@@ -2081,6 +2162,70 @@ function MapPage({ notify, sites, languages, onSiteRadiusChange }) {
   </div>;
 }
 
+function AdminCredentialsForm({ account, onAccountUpdate, onSuccess, submitLabel }) {
+  const [username, setUsername] = useState(account.username);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const updateCredentials = async (event) => {
+    event.preventDefault();
+    setError('');
+    if (username.trim().length < 3) {
+      setError('Tên đăng nhập cần có ít nhất 3 ký tự.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('Mật khẩu mới cần có ít nhất 8 ký tự.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Mật khẩu mới và xác nhận mật khẩu không khớp.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const session = await updateAdminCredentials(
+        currentPassword,
+        username.trim(),
+        newPassword,
+      );
+      onAccountUpdate({ username: session.username });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      onSuccess?.(session);
+    } catch (updateError) {
+      setError(updateError.message || 'Không thể cập nhật thông tin đăng nhập.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="settings-form" onSubmit={updateCredentials}>
+      <label>Tên đăng nhập
+        <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
+      </label>
+      <label>Mật khẩu hiện tại <em>*</em>
+        <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required />
+      </label>
+      <label>Mật khẩu mới <em>*</em>
+        <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={8} required />
+      </label>
+      <label>Xác nhận mật khẩu mới <em>*</em>
+        <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={8} required />
+      </label>
+      {error && <div className="settings-error" role="alert">{error}</div>}
+      <button className="button button-primary settings-save" type="submit" disabled={saving}>{saving ? 'Đang lưu…' : submitLabel}</button>
+      <p className="settings-security-note">Mật khẩu được lưu dưới dạng mã băm trong cơ sở dữ liệu, không lưu trong trình duyệt.</p>
+    </form>
+  );
+}
+
 function SettingsPage({ account, onAccountUpdate, notify, authRequired }) {
   const [displayName, setDisplayName] = useState(account.displayName);
   const [username, setUsername] = useState(account.username);
@@ -2091,63 +2236,17 @@ function SettingsPage({ account, onAccountUpdate, notify, authRequired }) {
   const [saving, setSaving] = useState(false);
 
   if (authRequired) {
-    const updateCredentials = async (event) => {
-      event.preventDefault();
-      setError('');
-      if (username.trim().length < 3) {
-        setError('Tên đăng nhập cần có ít nhất 3 ký tự.');
-        return;
-      }
-      if (newPassword.length < 8) {
-        setError('Mật khẩu mới cần có ít nhất 8 ký tự.');
-        return;
-      }
-      if (newPassword !== confirmPassword) {
-        setError('Mật khẩu mới và xác nhận mật khẩu không khớp.');
-        return;
-      }
-
-      setSaving(true);
-      try {
-        const session = await updateAdminCredentials(
-          currentPassword,
-          username.trim(),
-          newPassword,
-        );
-        onAccountUpdate({ username: session.username });
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-        notify('Đã đổi thông tin đăng nhập.');
-      } catch (updateError) {
-        setError(updateError.message || 'Không thể cập nhật thông tin đăng nhập.');
-      } finally {
-        setSaving(false);
-      }
-    };
-
     return (
       <section className="panel settings-panel">
         <div className="panel-heading">
           <div><h3>Thông tin tài khoản</h3><p>Đổi tài khoản quản trị. Thay đổi được lưu an toàn trên Backend.</p></div>
         </div>
-        <form className="settings-form" onSubmit={updateCredentials}>
-          <label>Tên đăng nhập
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
-          </label>
-          <label>Mật khẩu hiện tại <em>*</em>
-            <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required />
-          </label>
-          <label>Mật khẩu mới <em>*</em>
-            <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" minLength={8} required />
-          </label>
-          <label>Xác nhận mật khẩu mới <em>*</em>
-            <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" minLength={8} required />
-          </label>
-          {error && <div className="settings-error" role="alert">{error}</div>}
-          <button className="button button-primary settings-save" type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Lưu thông tin đăng nhập'}</button>
-          <p className="settings-security-note">Mật khẩu được lưu dưới dạng mã băm trong cơ sở dữ liệu, không lưu trong trình duyệt.</p>
-        </form>
+        <AdminCredentialsForm
+          account={account}
+          onAccountUpdate={onAccountUpdate}
+          onSuccess={() => notify('Đã đổi thông tin đăng nhập.')}
+          submitLabel="Lưu thông tin đăng nhập"
+        />
       </section>
     );
   }

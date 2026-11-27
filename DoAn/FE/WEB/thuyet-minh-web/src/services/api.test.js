@@ -13,7 +13,11 @@ vi.stubGlobal('window', {
 vi.stubGlobal('sessionStorage', storage);
 vi.stubGlobal('fetch', vi.fn());
 
-const { createSite, fetchActiveVisitors } = await import('./api.js');
+const {
+  createSite,
+  fetchActiveVisitors,
+  getAdminSession,
+} = await import('./api.js');
 
 const validSite = () => ({
   code: 'test-site',
@@ -80,6 +84,27 @@ describe('admin API errors', () => {
       code: 'NETWORK_ERROR',
       message: expect.stringContaining('Không nhận được phản hồi'),
     });
+  });
+
+  it('checks the server session before rendering the admin dashboard', async () => {
+    fetch.mockResolvedValue(new Response(JSON.stringify({
+      username: 'admin',
+      must_change_password: true,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    await expect(getAdminSession()).resolves.toMatchObject({
+      username: 'admin',
+      must_change_password: true,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/session'),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer test-admin-token' }),
+      }),
+    );
   });
 
   it('surfaces active visitor failures and returns the fresh count on a later request', async () => {
