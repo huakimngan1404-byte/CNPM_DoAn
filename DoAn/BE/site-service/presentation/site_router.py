@@ -46,6 +46,7 @@ class SiteAdminForm(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
+    geofence_radius: float = Field(default=100, ge=10, le=1000)
     address: str = Field(min_length=2, max_length=300)
     category: str = Field(min_length=2, max_length=100)
     description: str = Field(default="", max_length=20000)
@@ -55,6 +56,7 @@ class SiteAdminUpdate(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
+    geofence_radius: float | None = Field(default=None, ge=10, le=1000)
     address: str = Field(min_length=2, max_length=300)
     category: str = Field(min_length=2, max_length=100)
     description: str = Field(min_length=10, max_length=20000)
@@ -241,7 +243,7 @@ async def get_walking_route(from_code: str, to_code: str):
         raise HTTPException(status_code=502, detail=str(error)) from error
 
 def to_site_document(data: SiteAdminForm | SiteAdminUpdate, code: str):
-    return {
+    document = {
         "code": code,
         "name": data.name,
         "lat": data.lat,
@@ -255,6 +257,9 @@ def to_site_document(data: SiteAdminForm | SiteAdminUpdate, code: str):
             "coordinates": [data.lng, data.lat],
         }
     }
+    if data.geofence_radius is not None:
+        document["geofence_radius"] = data.geofence_radius
+    return document
 
 @router.get("/admin", dependencies=[Depends(require_admin)])
 async def get_admin_sites():

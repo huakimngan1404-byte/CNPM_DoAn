@@ -84,7 +84,7 @@ DEFAULT_SITES = (
         "description": "Nhà thờ Đức Bà Sài Gòn nằm giữa quảng trường Công xã Paris, ngay trung tâm thành phố. Công trình được xây dựng vào cuối thế kỷ 19, với vật liệu và nhiều chi tiết kiến trúc mang ảnh hưởng châu Âu. Hai tháp chuông cao là dấu mốc dễ nhận ra từ các tuyến đường xung quanh; phía trước nhà thờ là quảng trường rộng, nơi người dân và du khách thường dừng chân. Hãy quan sát mặt tiền, những ô cửa và bố cục cân xứng của công trình để cảm nhận phong cách kiến trúc tôn giáo thời kỳ đó. Nhà thờ cũng là một phần của quần thể di sản đô thị gần Bưu điện Trung tâm và đường Đồng Khởi, giúp bạn hình dung diện mạo khu trung tâm Sài Gòn qua nhiều giai đoạn. Công trình có thể đang được bảo tồn, tu sửa hoặc hạn chế tiếp cận ở một số khu vực; bạn nên quan sát từ không gian công cộng và tuân thủ các hướng dẫn tại chỗ.",
         "address": "01 Công xã Paris, Quận 1",
         "category": "Di tích kiến trúc",
-        "geofence_radius": 100.0,
+        "geofence_radius": 30.0,
         "location": {"type": "Point", "coordinates": [106.699018, 10.779783]},
     },
     {
@@ -93,8 +93,8 @@ DEFAULT_SITES = (
         "description": "Bưu điện Trung tâm Sài Gòn là một công trình công cộng lâu đời vẫn nằm giữa nhịp sống của Quận 1. Được xây dựng vào cuối thế kỷ 19, tòa nhà gây ấn tượng với mặt tiền rộng, đồng hồ lớn và những ô cửa vòm. Bước vào bên trong, bạn sẽ thấy không gian mái vòm cao, các quầy giao dịch và những bản đồ cổ trang trí trên tường. Kiến trúc vừa phục vụ công năng bưu chính vừa cho thấy cách người ta tổ chức các công trình đô thị trong giai đoạn Sài Gòn phát triển thành một trung tâm thương mại. Ngày nay, nơi đây vẫn là điểm tham quan được nhiều người ghé thăm và là địa chỉ gửi thư, bưu phẩm. Bạn có thể dành ít phút quan sát các chi tiết sắt, gỗ và bảng chỉ dẫn, đồng thời lưu ý giữ lối đi thông thoáng để hoạt động của bưu điện không bị ảnh hưởng.",
         "address": "02 Công xã Paris, Quận 1",
         "category": "Di tích kiến trúc",
-        "geofence_radius": 100.0,
-        "location": {"type": "Point", "coordinates": [106.699586, 10.779729]},
+        "geofence_radius": 30.0,
+        "location": {"type": "Point", "coordinates": [106.69997, 10.779830]},
     },
     {
         "code": "nha-hat-thanh-pho",
@@ -652,6 +652,29 @@ class SiteRepository:
             await db.sites.update_one(
                 {"code": site["code"]},
                 {"$setOnInsert": site_data},
+                upsert=True,
+            )
+        migration_id = "buu-dien-geofence-placement-v1"
+        if not await db.schema_migrations.find_one({"_id": migration_id}):
+            await db.sites.update_one(
+                {"code": "nha-tho-duc-ba-sai-gon"},
+                {"$set": {"geofence_radius": 30.0}},
+            )
+            await db.sites.update_one(
+                {"code": "buu-dien-trung-tam-sai-gon"},
+                {"$set": {
+                    "lat": 10.779830,
+                    "lng": 106.69997,
+                    "location": {
+                        "type": "Point",
+                        "coordinates": [106.69997, 10.779830],
+                    },
+                    "geofence_radius": 30.0,
+                }},
+            )
+            await db.schema_migrations.update_one(
+                {"_id": migration_id},
+                {"$setOnInsert": {"applied_at": datetime.now(timezone.utc)}},
                 upsert=True,
             )
         await db.sites.update_many(

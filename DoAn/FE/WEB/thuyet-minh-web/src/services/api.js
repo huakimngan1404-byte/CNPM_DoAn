@@ -87,6 +87,7 @@ async function createBackendHttpError(response) {
   const error = new Error(
     `Backend trả HTTP ${response.status} (${statusLabel})${detail ? `: ${detail}` : '.'}`,
   );
+  error.detail = detail;
   error.status = response.status;
   error.url = response.url;
   return error;
@@ -210,6 +211,7 @@ export async function fetchAdminSites() {
     description: record.description || '',
     lat: record.lat ?? record.location?.coordinates?.[1] ?? '',
     lng: record.lng ?? record.location?.coordinates?.[0] ?? '',
+    radius: Number(record.geofence_radius ?? record.radius ?? 100),
     isActive: record.is_active !== false,
     isHidden: record.is_hidden === true,
     languages: Array.isArray(record.languages)
@@ -372,6 +374,7 @@ function toSitePayload(site) {
     name: site.name.trim(),
     lat: Number(site.lat),
     lng: Number(site.lng),
+    geofence_radius: Number(site.radius),
     address: site.address.trim(),
     category: site.category,
     description: site.description.trim(),

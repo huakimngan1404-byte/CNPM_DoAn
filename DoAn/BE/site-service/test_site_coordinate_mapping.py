@@ -17,6 +17,7 @@ def test_create_site_mapping_keeps_geojson_order_and_flat_coordinates():
         name="Test site",
         lat=10.7687,
         lng=106.7066,
+        geofence_radius=30,
         address="Test address",
         category="Historical site",
     )
@@ -29,6 +30,7 @@ def test_create_site_mapping_keeps_geojson_order_and_flat_coordinates():
         "type": "Point",
         "coordinates": [106.7066, 10.7687],
     }
+    assert document["geofence_radius"] == 30
 
 
 def test_update_site_mapping_keeps_flat_and_geojson_coordinates_in_sync():

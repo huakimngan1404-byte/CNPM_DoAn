@@ -2219,6 +2219,7 @@ function SiteModal({ site, sites, onClose, onSave }) {
   const [category, setCategory] = useState(site?.category ?? 'Di tích lịch sử');
   const [lat, setLat] = useState(site?.lat === '' || site?.lat == null ? '' : String(site.lat));
   const [lng, setLng] = useState(site?.lng === '' || site?.lng == null ? '' : String(site.lng));
+  const [radius, setRadius] = useState(String(site?.radius ?? 100));
   const [description, setDescription] = useState(site?.description ?? '');
   const [status, setStatus] = useState(site?.status ?? 'Mở cửa');
   const [error, setError] = useState('');
@@ -2263,6 +2264,12 @@ function SiteModal({ site, sites, onClose, onSave }) {
       setError('Tọa độ không hợp lệ. Vĩ độ từ -90 đến 90, kinh độ từ -180 đến 180.');
       return;
     }
+    const geofenceRadius = Number(radius);
+    if (!radius.trim() || !Number.isFinite(geofenceRadius)
+      || geofenceRadius < 10 || geofenceRadius > 1000) {
+      setError('Bán kính geofence phải từ 10 đến 1000 mét.');
+      return;
+    }
     const siteCode = site?.code || code.trim();
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(siteCode) || siteCode.length < 2 || siteCode.length > 80) {
       setError('Mã di tích chỉ gồm chữ thường, số và dấu gạch ngang, ví dụ: dinh-doc-lap.');
@@ -2278,11 +2285,12 @@ function SiteModal({ site, sites, onClose, onSave }) {
         category,
         lat: latitude,
         lng: longitude,
+        radius: geofenceRadius,
         description: description.trim(),
         status,
       });
     } catch (saveError) {
-      setError(saveError.message);
+      setError(saveError.detail || saveError.message);
       setSaving(false);
     }
   };
@@ -2295,11 +2303,11 @@ function SiteModal({ site, sites, onClose, onSave }) {
       <label>Địa chỉ <em>*</em><div className="input-with-icon"><MapPin size={15} /><input value={address} onChange={(event) => { setAddress(event.target.value); setError(''); }} placeholder="Số nhà, tên đường..." /></div></label>
       <div className="form-columns">
         <label>Vĩ độ GPS <em>*</em>
-          <input type="number" min="-90" max="90" step="any" value={lat} onChange={(event) => setLat(event.target.value)} placeholder="10.7769" aria-invalid={Boolean(latitudeError)} aria-describedby={latitudeError ? 'site-lat-error' : undefined} />
+          <input type="number" min="-90" max="90" step="any" value={lat} onChange={(event) => { setLat(event.target.value); setError(''); }} placeholder="10.7769" aria-invalid={Boolean(latitudeError)} aria-describedby={latitudeError ? 'site-lat-error' : undefined} />
           {latitudeError && <small className="coordinate-error" id="site-lat-error" role="alert">{latitudeError}</small>}
         </label>
         <label>Kinh độ GPS <em>*</em>
-          <input type="number" min="-180" max="180" step="any" value={lng} onChange={(event) => setLng(event.target.value)} placeholder="106.6952" aria-invalid={Boolean(longitudeError)} aria-describedby={longitudeError ? 'site-lng-error' : undefined} />
+          <input type="number" min="-180" max="180" step="any" value={lng} onChange={(event) => { setLng(event.target.value); setError(''); }} placeholder="106.6952" aria-invalid={Boolean(longitudeError)} aria-describedby={longitudeError ? 'site-lng-error' : undefined} />
           {longitudeError && <small className="coordinate-error" id="site-lng-error" role="alert">{longitudeError}</small>}
         </label>
       </div>
@@ -2323,6 +2331,10 @@ function SiteModal({ site, sites, onClose, onSave }) {
         />
         {draftLocation && <small className="coordinate-picker-value">{draftLocation.latitude.toFixed(6)}, {draftLocation.longitude.toFixed(6)}</small>}
       </div>
+      <label>Bán kính geofence (m) <em>*</em>
+        <input type="number" min="10" max="1000" step="1" value={radius} onChange={(event) => { setRadius(event.target.value); setError(''); }} />
+        <small className="field-hint">Không được chồng vùng với geofence của POI khác.</small>
+      </label>
       <div className="form-columns"><label>Loại hình<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Di tích lịch sử</option><option>Lịch sử</option><option>Kiến trúc</option><option>Bảo tàng</option><option>Văn hóa</option></select></label><label>Trạng thái<select value={status} onChange={(event) => setStatus(event.target.value)}><option>Mở cửa</option><option>Đóng cửa</option></select></label></div>
       {site && <label>Nội dung thuyết minh <em>*</em><textarea rows="4" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Nhập nội dung để hệ thống dùng cho thuyết minh và tạo audio..." /></label>}
       {error && <div className="form-error" role="alert">{error}</div>}
