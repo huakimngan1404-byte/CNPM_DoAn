@@ -268,6 +268,86 @@ class SiteService:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         return R * c # Trả về mét
 
+    @staticmethod
+    def _geofence_radius(site):
+        radius = site.get("geofence_radius")
+        if (
+            isinstance(radius, bool)
+            or not isinstance(radius, (int, float))
+            or not math.isfinite(radius)
+            or not 10 <= radius <= 1000
+        ):
+            return 100.0
+        return float(radius)
+
+    async def _validate_geofence_does_not_overlap(
+        self,
+        site,
+        excluded_code=None,
+        action="lưu",
+    ):
+        location = site.get("location")
+        coordinates = location.get("coordinates") if isinstance(location, dict) else None
+        radius = site.get("geofence_radius")
+        valid_coordinates = (
+            isinstance(coordinates, list)
+            and len(coordinates) >= 2
+            and all(
+                not isinstance(value, bool)
+                and isinstance(value, (int, float))
+                and math.isfinite(value)
+                for value in coordinates[:2]
+            )
+            and -180 <= coordinates[0] <= 180
+            and -90 <= coordinates[1] <= 90
+        )
+        if (
+            not valid_coordinates
+            or isinstance(radius, bool)
+            or not isinstance(radius, (int, float))
+            or not math.isfinite(radius)
+            or not 10 <= radius <= 1000
+        ):
+            raise ValueError("Tọa độ hoặc bán kính geofence không hợp lệ.")
+
+        longitude, latitude = coordinates[:2]
+        for existing in await self.repo.get_all_sites():
+            if existing.get("code") == excluded_code:
+                continue
+            existing_location = existing.get("location")
+            existing_coordinates = (
+                existing_location.get("coordinates")
+                if isinstance(existing_location, dict)
+                else None
+            )
+            if (
+                not isinstance(existing_coordinates, list)
+                or len(existing_coordinates) < 2
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(value)
+                    for value in existing_coordinates[:2]
+                )
+                or not -180 <= existing_coordinates[0] <= 180
+                or not -90 <= existing_coordinates[1] <= 90
+            ):
+                continue
+
+            existing_lng, existing_lat = existing_coordinates[:2]
+            distance = self.calculate_distance(
+                latitude,
+                longitude,
+                existing_lat,
+                existing_lng,
+            )
+            if distance < radius + self._geofence_radius(existing):
+                raise ValueError(
+                    f'Không thể {action} {site.get("name", "di tích")}: '
+                    f'vùng geofence bị chồng với {existing.get("name", "di tích")}. '
+                    "Vui lòng đổi vị trí hoặc giảm bán kính."
+                )
+
     async def get_walking_route(self, from_code: str, to_code: str):
         if from_code == to_code:
             raise ValueError("Điểm xuất phát và điểm đến phải là hai di tích khác nhau.")
@@ -366,14 +446,7 @@ class SiteService:
         for site in sites:
             site_lng = site["location"]["coordinates"][0]
             site_lat = site["location"]["coordinates"][1]
-            geofence_radius = site.get("geofence_radius")
-            if (
-                isinstance(geofence_radius, bool)
-                or not isinstance(geofence_radius, (int, float))
-                or not math.isfinite(geofence_radius)
-                or not 10 <= geofence_radius <= 1000
-            ):
-                geofence_radius = 100
+            geofence_radius = self._geofence_radius(site)
             # Tính toán khoảng cách
             distance = self.calculate_distance(lat, lng, site_lat, site_lng)
             if distance <= geofence_radius and (
@@ -432,15 +505,18 @@ class SiteService:
             print(f"Lỗi kết nối RabbitMQ: {e}")
 
     async def add_site(self, data: dict):
+        await self.ensure_catalog_seeded()
         if not data.get("name") or not data.get("code") or not data.get("location"):
             raise ValueError("Cần có mã, tên và vị trí di tích.")
         if await self.repo.get_site_by_code(data["code"]):
             raise ValueError("Mã di tích đã tồn tại.")
-        data["geofence_radius"] = 100.0
+        data["geofence_radius"] = data.get("geofence_radius", 100.0)
+        await self._validate_geofence_does_not_overlap(data, action="thêm")
         await self.repo.create_site(data)
         return {"status": "success"}
 
     async def update_site(self, code: str, data: dict):
+        await self.ensure_catalog_seeded()
         existing = await self.repo.get_site_by_code(code)
         if not existing:
             raise LookupError("Không tìm thấy di tích.")
@@ -448,16 +524,31 @@ class SiteService:
             raise ValueError("Di tích đã ẩn, không thể chỉnh sửa.")
         if not data.get("name") or not data.get("location"):
             raise ValueError("Cần có tên và vị trí di tích.")
-        data["geofence_radius"] = existing.get("geofence_radius", 100.0)
+        data["geofence_radius"] = data.get(
+            "geofence_radius",
+            self._geofence_radius(existing),
+        )
+        await self._validate_geofence_does_not_overlap(
+            data,
+            excluded_code=code,
+            action="cập nhật",
+        )
         await self.repo.update_site(code, data)
         return {"status": "success"}
 
     async def update_geofence_radius(self, code: str, radius: float):
+        await self.ensure_catalog_seeded()
         existing = await self.repo.get_site_by_code(code)
         if not existing:
             raise LookupError("Không tìm thấy di tích.")
         if existing.get("is_hidden") is True:
             raise ValueError("Di tích đã ẩn, không thể thay đổi bán kính.")
+        updated_site = {**existing, "geofence_radius": radius}
+        await self._validate_geofence_does_not_overlap(
+            updated_site,
+            excluded_code=code,
+            action="thay đổi bán kính cho",
+        )
         await self.repo.update_site(code, {"geofence_radius": radius})
         return {"status": "success", "geofence_radius": radius}
 

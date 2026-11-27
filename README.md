@@ -192,6 +192,8 @@ Mở địa chỉ Vite hiển thị trong terminal (thường là <http://localh
 
 Tài khoản quản trị ban đầu được cấu hình phía site service qua `ADMIN_INITIAL_USERNAME` và `ADMIN_INITIAL_PASSWORD`. Hãy thiết lập credentials riêng; không đưa thông tin đăng nhập vào README hoặc commit vào repository.
 
+Mật khẩu quản trị hết hạn sau 24 giờ kể từ lần đổi gần nhất. Khi hết hạn, Admin chỉ được đổi mật khẩu trước khi sử dụng các chức năng quản trị. Với tài khoản đã tồn tại, hệ thống khởi tạo mốc `password_changed_at` ở lần site service khởi động đầu tiên sau khi cập nhật.
+
 ## API
 
 Hai dịch vụ backend được xây dựng bằng FastAPI và cung cấp Swagger UI tại đường dẫn `/docs` khi chạy cục bộ.

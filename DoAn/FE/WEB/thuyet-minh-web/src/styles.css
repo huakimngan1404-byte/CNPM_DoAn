@@ -32,6 +32,10 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .login-field input::placeholder { color: #a1a7b0; }
 .login-error { margin-top: 13px; color: #bd3e32; font-size: 10px; }
 .login-submit { width: 100%; margin-top: 21px; }
+.password-change-card { width: min(100%, 520px); }
+.password-change-card .settings-form { max-width: none; margin-top: 20px; }
+.password-change-card .settings-save { width: 100%; align-self: stretch; }
+.password-change-logout { display: block; margin: 14px auto 0; padding: 5px 10px; border: 0; color: #737b87; background: transparent; cursor: pointer; font-size: 10px; }
 .sidebar { position: fixed; z-index: 30; inset: 0 auto 0 0; display: flex; flex-direction: column; width: 252px; padding: 24px 16px 14px; color: #d6d9e0; background: var(--navy); }
 .brand { display: flex; align-items: center; gap: 11px; height: 44px; padding: 0 9px; color: #fff; }
 .brand-mark { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 11px; color: #fff; background: var(--accent); box-shadow: 0 4px 12px #e9593b40; }
