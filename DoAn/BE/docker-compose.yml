@@ -26,7 +26,5 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       MYMEMORY_EMAIL: ${MYMEMORY_EMAIL:-}
     volumes:
-      - audio_data:/app/static/audio
-
-volumes:
-  audio_data:
+      - ./FolderA:/app/FolderA
+      - ./FolderB:/app/static/audio
